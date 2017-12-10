@@ -108,8 +108,11 @@ In Matlab, type `help loadOrRun` to see details and additional options. Briefly,
     * use short query field names
 * Be careful making changes to options.defaultQuery, as this may result in a mismatch between previously cached filenames and new results.
 * LORDAP does not scale well, especially to complex "queries." [DataJoint](https://datajoint.io) is a better option in this situation, since it leverages the speed and scalability of a SQL database backend.
-* LORDAP uses modification timestamps on a `.m` file to detect when the associated data has become stale and should be deleted. Avoid wrapping _local_ functions in `loadOrRun`, since any change to the file will trigger the deletion of cached results. Instead, each cached function should be given its own file.
-* LORDAP cannot detect changes to anonymous functions, or functions inside a package like `+foo/bar.m`, which would be referenced as `@foo.bar`. Everything else works as expected for these functions.
+* Behavior of "onDependencyChange"
+    * LORDAP uses modification timestamps on a `.m` file to detect when the associated data has become stale and should be deleted.
+    * There are essentially two modes: ignore the problem completely or aggressively delete cached files (which may unnecessarily force other things to be recomputed later).
+    * Avoid wrapping _local_ functions in `loadOrRun`, since any change to the file will trigger the deletion of cached results. Instead, each cached function should be given its own file.
+    * Does not work for anonymous functions or packages like `+foo/bar.m` (which would be referenced as `@foo.bar`).
 
 License
 ---
