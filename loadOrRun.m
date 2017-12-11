@@ -96,31 +96,23 @@ if ~exist(options.metaPath, 'dir')
     mkdir(options.metaPath);
 end
 
-% 'callerDependencies' tracks what 'loadOrRun' functions are called above the current one, so that
-% if the current one is changed we can detect that 'higher' ones must be updated as well. Each entry
-% in callerDependencies will map from funcName to {callerName1, callerName2} (a cell array of string
-% names of 'loadOrRun' functions higher up in the stack). 'calleeDependencies' is the reverse,
-% mapping from high a level function to its dependencies' source files.
+% 'dependencies' tracks what 'loadOrRun' functions are called above the current one, so that if the
+% current one is changed we can detect from 'higher' ones that they must be recomputed. Each entry
+% maps from a function name (funcName) to the .m source file(s) of its dependencie(s).
 metaFile = fullfile(options.metaPath, 'dependencies.mat');
 if exist(metaFile, 'file')
     contents = load(metaFile);
-    callerDependencies = contents.callerDependencies;
-    calleeDependencies = contents.calleeDependencies;
+    dependencies = contents.dependencies;
     if options.verbose == 1
         disp(['Loaded ''callerDependencies'' from ' metaFile]);
     elseif options.verbose == 2
-        fprintf('Loaded dependencies from %s. Caller:\n', metaFile);
-        for k=keys(callerDependencies)
-            fprintf('\t%s -> %s\n', k{1}, repr(callerDependencies(k{1}), options.numPrecision));
-        end
-        fprintf('Loaded dependencies from %s. Callee:\n', metaFile);
-        for k=keys(calleeDependencies)
-            fprintf('\t%s -> %s\n', k{1}, repr(calleeDependencies(k{1}), options.numPrecision));
+        fprintf('Loaded dependencies from %s:\n', metaFile);
+        for k=keys(dependencies)
+            fprintf('\t%s -> %s\n', k{1}, repr(dependencies(k{1}), 0));
         end
     end
 else
-    callerDependencies = containers.Map();
-    calleeDependencies = containers.Map();
+    dependencies = containers.Map();
     if options.verbose
         disp('No metadata file exists yet - starting with empty dependencies');
     end
@@ -131,32 +123,39 @@ end
 % Get information about the true name of 'func', its source file, etc.
 funcInfo = functions(func);
 funcName = funcInfo.function;
+sourceFile = funcInfo.file;
+hasSource = true;
 
-if ~isKey(callerDependencies, funcName)
-    callerDependencies(funcName) = {};
+if isempty(sourceFile)
+    if ~exist(funcName, 'builtin')
+        warning('Source file for %s cannot be inferred (is it an anonymous- or package-function?)\n', funcName);
+    end
+    hasSource = false;
+elseif ~exist(sourceFile, 'file')
+    warning('Source file for %s is not visible from the current path settings (source: ''%s'')\n', funcName, sourceFile);
+    hasSource = false;
 end
 
-if ~isKey(calleeDependencies, funcName)
-    calleeDependencies(funcName) = {};
-end
-
-% Search up the stack trace for other calls to 'loadOrRun'
-stack = dbstack();
-for i=2:length(stack)
-    if strcmpi(stack(i).name, 'loadorrun')
-        callerFuncName = stack(i-1).name;
-        callerNames = callerDependencies(funcName);
-        callerDependencies(funcName) = horzcat(callerNames, {callerFuncName});
-        
-        if ~isempty(funcInfo.file)
-            callees = calleeDependencies(callerFuncName);
-            calleeDependencies(callerFuncName) = horzcat(callees, {funcInfo.file});
-        elseif options.verbose == 2
-            warning('Source file unknown for %s (is it an anonymous- or package-function?)\n', funcName);
+if hasSource
+    % A function depends on its own source file (if it exists)
+    if ~isKey(dependencies, funcName)
+        dependencies(funcName) = {sourceFile};
+    end
+    
+    % Search up the stack trace for other calls to 'loadOrRun' to populate dependencies
+    stack = dbstack();
+    for i=2:length(stack)
+        if strcmpi(stack(i).name, 'loadorrun')
+            callerFuncName = stack(i-1).name;
+            if ~isempty(sourceFile) && exist(sourceFile, 'file')
+                dependencies(callerFuncName) = horzcat(dependencies(callerFuncName), {sourceFile});
+            end
         end
     end
+elseif ~isKey(dependencies, funcName)
+    dependencies(funcName) = {};
 end
-save(metaFile, 'callerDependencies', 'calleeDependencies');
+save(metaFile, 'dependencies');
 
 %% Get UID or create from query
 
@@ -191,37 +190,17 @@ if options.verbose == 2
     end
 end
 
-%% Check modification times and (maybe) remove files affected by change
-
-sourceInfo = dir(funcInfo.file);
-cacheInfo = dir(cacheFile);
+%% Check modification times and (maybe) remove cache file if dependencies changed
 
 if ~strcmpi(options.onDependencyChange, 'ignore')
-    %% Part 0: check source of function itself
-    if ~isempty(cacheInfo) && ~isempty(sourceInfo)
-        removeCacheIfSourceChanged(options, funcName, funcInfo.file);
-    end
-    
-    %% Part 1 (down the stack): check if anything that this function depends on has changed
-    if ~isempty(cacheInfo) && isKey(calleeDependencies, funcName)
-        % Get list of dependencies' source files to compare against the existing cache file.
-        depdendencySources = calleeDependencies(funcName);
+    if exist(cacheFile, 'file') && isKey(dependencies, funcName)
+        % Get list of dependencies' source files to compare against the existing cache file (this
+        % includes the source file of 'func').
+        depdendencySources = dependencies(funcName);
         
         for i=1:length(depdendencySources)
-            removeCacheIfSourceChanged(options, funcName, depdendencySources{i});
+            removeCacheIfSourceChanged(options, cacheFile, depdendencySources{i});
         end
-    end
-    
-    %% Part 2 (up the stack): if this function has changed, update anything that depends on it
-    if ~isempty(sourceInfo) && isKey(callerDependencies, funcName)
-        % Get list of functions 'higher' in the stack that have called this function.
-        callerNames = callerDependencies(funcName);
-        
-        for i=1:length(callerNames)
-            removeCacheIfSourceChanged(options, callerNames{i}, funcInfo.file);
-        end
-    elseif options.verbose == 2
-        warning('Source file of %s is unknown; dependency checks cannot be done\n', funcName);
     end
 end
 
@@ -309,6 +288,10 @@ for i=1:length(fields)
     val = query.(key);
     if isfield(defaultQuery, key) && isequal(val, defaultQuery.(key))
         isDefault(i) = true;
+    elseif isfield(defaultQuery, key) && isstruct(val)
+        % If field is struct but doesn't match default, recurse to sub-structure *with defaults* as
+        % if this field is its own query.
+        uidParts{i} = [key '=(' queryToUID(val, defaultQuery.(key), numPrecision) ')'];
     else
         uidParts{i} = [key '=' repr(val, numPrecision)];
     end
@@ -341,47 +324,29 @@ elseif isstruct(obj)
         val = obj.(key);
         sParts{i} = [key '=' repr(val, numPrecision)];
     end
-    s = ['(' strjoin(sParts, ',') ')'];
+    s = ['(' strjoin(sParts, '-') ')'];
 end
 end
 
-function removeCacheIfSourceChanged(options, funcName, dependencySourceFile)
+function removeCacheIfSourceChanged(options, cacheFile, dependencySourceFile)
 % Check if sourceFile changed more recently than the saved cached file(s).
 sourceInfo = dir(dependencySourceFile);
-cacheFilePattern = fullfile(options.cachePath, [funcName '-*']);
-cacheFilesInfo = dir(cacheFilePattern);
-oldestCacheFile = min([cacheFilesInfo.datenum]);
+cacheInfo = dir(cacheFile);
 
-if ~isempty(sourceInfo) && ~isempty(oldestCacheFile) && oldestCacheFile < sourceInfo.datenum
+if ~isempty(sourceInfo) && ~isempty(cacheInfo) && cacheInfo.datenum < sourceInfo.datenum
     message = ['Source file ' dependencySourceFile ' changed since the cached results for ' ...
-        funcName ' were last updated. Delete the cached file if the output is affected!!'];
+        cacheFile ' were last updated.'];
     switch lower(options.onDependencyChange)
         case {'warn'}
-            warning(message);
+            warning([message ' Delete the cached file if the output is affected!!']);
         case {'autoremove'}
             if options.verbose
-                disp(message);
+                disp([message ' Deleting it now!']);
             end
-            removeCacheFilesForFunction(options, funcName, sourceInfo.datenum);
+            delete(cacheFile);
     end
 end
 
-end
-
-function removeCacheFilesForFunction(options, funcName, beforeTimestamp)
-pattern = fullfile(options.cachePath, [funcName '-*']);
-if options.verbose
-    fprintf('Removing files for %s()\n', funcName);
-end
-files = dir(pattern);
-for i=1:length(files)
-    if files(i).datenum < beforeTimestamp
-        if options.verbose == 2
-            fprintf('\tremoving %s\n', files(i).name);
-        end
-        delete(fullfile(files(i).folder, files(i).name));
-    end
-end
 end
 
 function [uid, isHashed] = maybeHash( uid, maxLength )
