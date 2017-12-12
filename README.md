@@ -112,7 +112,8 @@ In Matlab, type `help loadOrRun` to see details and additional options. Briefly,
     * LORDAP uses modification timestamps on a `.m` file to detect when the associated data has become stale and should be deleted.
     * There are essentially two modes: ignore the problem completely or aggressively delete cached files (which may unnecessarily force other things to be recomputed later).
     * Avoid wrapping _local_ functions in `loadOrRun`, since any change to the file will trigger the deletion of cached results. Instead, each cached function should be given its own file.
-    * Does not work for anonymous functions or packages like `+foo/bar.m` (which would be referenced as `@foo.bar`).
+    * Does not work for anonymous functions.
+    * Cannot tell the difference between the same function name in different packages. More specifically, if `+packageA/foo.m` depends on `bar.m`, *and* there exists some other function named `foo` in another package like `+packageB/foo.m`, then a change to `bar.m` will trigger an update to `foo` in package B. Note that this may result in extra computation, but should never result in incorrect outputs. 
 
 License
 ---

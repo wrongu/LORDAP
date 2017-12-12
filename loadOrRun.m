@@ -124,11 +124,34 @@ end
 funcInfo = functions(func);
 funcName = funcInfo.function;
 sourceFile = funcInfo.file;
+isPackage = contains(funcName, '.');
 hasSource = true;
+
+if isPackage
+    % Fix odd behavior in Matlab where functions(@package.func) cannot find the source of a file,
+    % but which(functions(@package.func).function) can find it.
+    sourceFile = which(funcName);
+    
+    % Further fix odd behavior where dbstack() from within package functions strips off the name of
+    % the package - as far as monitoring dependencies goes, this means that dependencies of 
+    % packageA.packageFun and packageB.packageFun will be 'merged', which could trigger more
+    % warnings and updates than is strictly necessary.
+    nameParts = split(funcName, '.');
+    if options.verbose
+        warning(['Note: package functions have surprising behavior! %s() will be stored as just '...
+            '''%s'' when checking for changed dependencies - loadOrRun cannot tell the difference '...
+            'between this and a function of the same name in another package!!'], funcName, nameParts{end});
+    end
+    keyFuncName = nameParts{end};
+else
+    keyFuncName = funcName;
+end
 
 if isempty(sourceFile)
     if ~exist(funcName, 'builtin')
-        warning('Source file for %s cannot be inferred (is it an anonymous- or package-function?)\n', funcName);
+        warning('Source file for %s cannot be inferred (is it an anonymous function??)\n', funcName);
+    elseif options.verbose == 2
+        fprintf('%s appears to be a built-in function. loadOrRun will not try to check for changes to its source.\n', funcName);
     end
     hasSource = false;
 elseif ~exist(sourceFile, 'file')
@@ -136,25 +159,28 @@ elseif ~exist(sourceFile, 'file')
     hasSource = false;
 end
 
-if hasSource
-    % A function depends on its own source file (if it exists)
-    if ~isKey(dependencies, funcName)
-        dependencies(funcName) = {sourceFile};
+% A function depends on its own source file (if it exists)
+if ~isKey(dependencies, keyFuncName)
+    if hasSource
+        dependencies(keyFuncName) = {sourceFile};
+    else
+        dependencies(keyFuncName) = {};
     end
+end
     
-    % Search up the stack trace for other calls to 'loadOrRun' to populate dependencies
-    stack = dbstack();
-    for i=2:length(stack)
-        if strcmpi(stack(i).name, 'loadorrun')
-            callerFuncName = stack(i-1).name;
-            if ~isempty(sourceFile) && exist(sourceFile, 'file')
-                dependencies(callerFuncName) = horzcat(dependencies(callerFuncName), {sourceFile});
-            end
+% Search up the stack trace for other calls to 'loadOrRun' to populate dependencies
+stack = dbstack();
+for i=2:length(stack)
+    if strcmpi(stack(i).name, 'loadorrun')
+        callerFuncName = stack(i-1).name;
+        if ~isempty(sourceFile) && exist(sourceFile, 'file')
+            % Note: 'callerFuncName' should always be a key of 'dependencies' since it was already
+            % called higher in the stack.
+            dependencies(callerFuncName) = horzcat(dependencies(callerFuncName), {sourceFile});
         end
     end
-elseif ~isKey(dependencies, funcName)
-    dependencies(funcName) = {};
 end
+
 save(metaFile, 'dependencies');
 
 %% Get UID or create from query
@@ -193,10 +219,10 @@ end
 %% Check modification times and (maybe) remove cache file if dependencies changed
 
 if ~strcmpi(options.onDependencyChange, 'ignore')
-    if exist(cacheFile, 'file') && isKey(dependencies, funcName)
+    if exist(cacheFile, 'file') && isKey(dependencies, keyFuncName)
         % Get list of dependencies' source files to compare against the existing cache file (this
         % includes the source file of 'func').
-        depdendencySources = dependencies(funcName);
+        depdendencySources = dependencies(keyFuncName);
         
         for i=1:length(depdendencySources)
             removeCacheIfSourceChanged(options, cacheFile, depdendencySources{i});
