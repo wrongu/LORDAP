@@ -32,12 +32,12 @@ If you're designing a pipeline from scratch, consider using [DataJoint](https://
 | | DataJoint | PSOM | LORDAP |
 | -------------- | ------------- | ------------- | ------------- |
 | Backend/infrastructure | MySQL server* | any filesystem | any filesystem |
-| Learning Curve | steep | moderate | low |
-| Support/Documentation | full-time | [forum](https://www.nitrc.org/forum/forum.php?forum_id=1316) | minimal (Github issues) |
+| Learning Curve | steep | moderate | easy |
+| Support & docs | full-time | [forum](https://www.nitrc.org/forum/forum.php?forum_id=1316) | minimal (Github issues) |
 | Language(s) | Matlab/Python | Matlab/Octave | Matlab/Octave |
 | Parallel/cluster tools | tracks jobs | automatic | none |
 | "Caching" semantics | sort of | no | yes |
-| "Drop in" to existing code | no | no | yes |
+| "Drop in" to existing code | no | sort of | yes |
 
 \* DataJoint will also host a server for you, for a fee
 
@@ -69,7 +69,7 @@ options.uid = 'arg1=12';
 x2 = loadOrRun(@process_other_data, {12}, options);
 ```
 
-...but even this can get tedious and can be automated using "query structs"
+...but even this can get tedious and can be automated using "query structs." Exactly one of either `options.uid` or `options.query` __must__ be supplied.
 
 Advanced Usage and Query Structs
 ---
@@ -99,21 +99,21 @@ In Matlab, type `help loadOrRun` to see details and additional options. Briefly,
 
 * Fully integrating LORDAP into your project will require some small overhead:
     * at the "bottom" of the pipeline, write a loader function that will read raw data given a query struct
-    * create a "default" query struct and  pass query structs around between all functions
-    * periodically purge the directory of cached results, since cached file names will tend to grow stale as new query features are added.
+    * create a "default" query struct and  pass query structs around between all functions. It is common to see `loadOrRun(@myfunction, {arg1, arg2, options}, options)` so that `myfunction` has access to `options` as well, e.g. for passing it through to another call to `loadOrRun`.
+    * it is recommended that you periodically purge the directory of cached results, since cached file names will tend to grow stale as new query features are added.
 * If your function has multiple outputs, you must use the `~` placeholder for any outputs you're not using at a given time. For example, if `f` has two outputs, use `[result, ~] = loadOrRun(@f, {}, ...)` so that `loadOrRun` knows to cache the second output as well for future use. 
 * LORDAP will create files in your project (unless you configure outputs to be elsewhere). With the default options, you will want to add `.cache/` and `.meta/` to your `.gitignore` file.
-* Unix filenames are limited to 255 characters. LORDAP will automatically and transparently "hash" filenames longer than this. Warnings will be issued when there are hash collisions. However, hashed files cannot be easily searched in your filesystem (they will look something like `84D2F807.mat`), and should be avoided. Tips for reducing filename sizes:
+* Unix filenames are limited to 255 characters. LORDAP will automatically and transparently "hash" filenames longer than this. Warnings will be issued when there are hash collisions (which is extremely unlikely). However, hashed files cannot be easily searched in your filesystem - they will look something like `process_data-84D2F807.mat` - and should be avoided. Tips for reducing filename sizes:
     * use short function names
     * use short query field names
-* Be careful making changes to options.defaultQuery, as this may result in a mismatch between previously cached filenames and new results.
+    * make use of the `defaultQuery` field so that only _relevant_ aspects of a broader set of options are included in the filename
+* Be careful making changes to `options.defaultQuery`, as this may result in a mismatch between previously cached filenames and new results.
 * LORDAP does not scale well, especially to complex "queries." [DataJoint](https://datajoint.io) is a better option in this situation, since it leverages the speed and scalability of a SQL database backend.
-* Behavior of "onDependencyChange"
+* Notes on how changed dependencies are handled (configured in `options.onDependencyChange`):
     * LORDAP uses modification timestamps on a `.m` file to detect when the associated data has become stale and should be deleted.
-    * There are essentially two modes: ignore the problem completely or aggressively delete cached files (which may unnecessarily force other things to be recomputed later).
-    * Avoid wrapping _local_ functions in `loadOrRun`, since any change to the file will trigger the deletion of cached results. Instead, each cached function should be given its own file.
-    * Does not work for anonymous functions.
-    * Cannot tell the difference between the same function name in different packages. More specifically, if `+packageA/foo.m` depends on `bar.m`, *and* there exists some other function named `foo` in another package like `+packageB/foo.m`, then a change to `bar.m` will trigger an update to `foo` in package B. Note that this may result in extra computation, but should never result in incorrect outputs. 
+    * There are essentially two modes: ignore the problem completely or aggressively delete a cached output if there is any chance it needs updating (which may unnecessarily force other things to be recomputed later).
+    * Avoid caching _local_ functions, since any change to the surrounding file will trigger the deletion of cached results. Each cached function should be given its own file.
+    * LORDAP cannot tell the difference between functions with the same name in different packages. More specifically, if `+packageA/foo.m` depends on `bar.m`, __and__ there exists some other function named `foo` in another package like `+packageB/foo.m`, then a change to `bar.m` will trigger an update to `foo` both in package A (expected) package B (unexpected!).
 
 License
 ---
