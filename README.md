@@ -118,6 +118,6 @@ In Matlab, type `help loadOrRun` to see details and additional options. Briefly,
 License
 ---
 
-[GNU GPLv3](LICENSE.txt)
+[MIT](LICENSE.txt)
 
-Note that this license must be copied and referenced wherever this project is used.
+Note that this license should be copied and referenced alongside the source when using LORDAP in your project.
