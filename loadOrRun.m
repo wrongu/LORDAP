@@ -18,6 +18,7 @@ function varargout = loadOrRun(func, args, options)
 % 'options' is a struct. It may contain the following fields to control the behavior of LOADORRUN:
 % - cachePath - where save results (default '.cache/'). Note that the '.' prefix makes the directory
 %   hidden on unix and linux systems.
+% - metaPath - where to save metadata about function dependencies (default '.meta/')
 % - recompute - boolean flag to force a call to func() even if cached result exists (default false)
 % - verbose - integer flag for level of extra diagnostic messages in range 0-2 (default 0)
 % - errorHandling - how to handle errors. Options are 'none' to do nothing, or 'cache' to save and
@@ -26,10 +27,10 @@ function varargout = loadOrRun(func, args, options)
 %   in a .error file in the cachePath directory, but does not give access to stack traces (default
 %   'none')
 % - numPrecision - precision digits for queries based on numerical values (default 4)
-% - onDependencyChange - what to do with cached results when the source file has been
+% - onDependencyChange - what to do with cached results of functions whose dependencies have been
 %   modified. Options are 'ignore' to skip checks, 'warn' to  print a warning, or 'autoremove' to
-%   automatically remove and recompute the cached file (but note: this has no effect on upstream
-%   dependencies! Nested calls to loadOrRun may result in errors this way.)
+%   automatically and aggressively delete any upstream file that may have been affected (default
+%   'warn')
 % - query - a query struct (see below). 'uid' and 'query' are mutually exclusive, and supplying both
 %   will result in an error. At least one is required.
 % - defaultQuery - a query struct (see below). Any values in  'options.query' that match those in
@@ -63,6 +64,7 @@ if nargin < 3, options = struct(); end
 
 % Set up default options
 if ~isfield(options, 'cachePath'), options.cachePath = fullfile(pwd, '.cache'); end
+if ~isfield(options, 'metaPath'), options.metaPath = fullfile(pwd, '.meta'); end
 if ~isfield(options, 'recompute'), options.recompute = false; end
 if ~isfield(options, 'verbose'), options.verbose = false; end
 if ~isfield(options, 'errorHandling'), options.errorHandling = 'none'; end
@@ -87,9 +89,99 @@ if ~exist(options.cachePath, 'dir')
     mkdir(options.cachePath);
 end
 
+if ~exist(options.metaPath, 'dir')
+    if options.verbose
+        disp(['Metadata directory ' options.metaPath ' does not exist. Creating it now.']);
+    end
+    mkdir(options.metaPath);
+end
+
+% 'dependencies' tracks what 'loadOrRun' functions are called above the current one, so that if the
+% current one is changed we can detect from 'higher' ones that they must be recomputed. Each entry
+% maps from a function name (funcName) to the .m source file(s) of its dependencie(s).
+metaFile = fullfile(options.metaPath, 'dependencies.mat');
+if exist(metaFile, 'file')
+    contents = load(metaFile);
+    dependencies = contents.dependencies;
+    if options.verbose == 1
+        disp(['Loaded ''callerDependencies'' from ' metaFile]);
+    elseif options.verbose == 2
+        fprintf('Loaded dependencies from %s:\n', metaFile);
+        for k=keys(dependencies)
+            fprintf('\t%s -> %s\n', k{1}, repr(dependencies(k{1}), 0));
+        end
+    end
+else
+    dependencies = containers.Map();
+    if options.verbose
+        disp('No metadata file exists yet - starting with empty dependencies');
+    end
+end
+
+%% Update dependencies metadata by searching up the current call stack
+
 % Get information about the true name of 'func', its source file, etc.
 funcInfo = functions(func);
 funcName = funcInfo.function;
+sourceFile = funcInfo.file;
+isPackage = contains(funcName, '.');
+hasSource = true;
+
+if isPackage
+    % Fix odd behavior in Matlab where functions(@package.func) cannot find the source of a file,
+    % but which(functions(@package.func).function) can find it.
+    sourceFile = which(funcName);
+    
+    % Further fix odd behavior where dbstack() from within package functions strips off the name of
+    % the package - as far as monitoring dependencies goes, this means that dependencies of 
+    % packageA.packageFun and packageB.packageFun will be 'merged', which could trigger more
+    % warnings and updates than is strictly necessary.
+    nameParts = split(funcName, '.');
+    if options.verbose
+        warning(['Note: package functions have surprising behavior! %s() will be stored as just '...
+            '''%s'' when checking for changed dependencies - loadOrRun cannot tell the difference '...
+            'between this and a function of the same name in another package!!'], funcName, nameParts{end});
+    end
+    keyFuncName = nameParts{end};
+else
+    keyFuncName = funcName;
+end
+
+if isempty(sourceFile)
+    if ~exist(funcName, 'builtin')
+        warning('Source file for %s cannot be inferred (is it an anonymous function??)\n', funcName);
+    elseif options.verbose == 2
+        fprintf('%s appears to be a built-in function. loadOrRun will not try to check for changes to its source.\n', funcName);
+    end
+    hasSource = false;
+elseif ~exist(sourceFile, 'file')
+    warning('Source file for %s is not visible from the current path settings (source: ''%s'')\n', funcName, sourceFile);
+    hasSource = false;
+end
+
+% A function depends on its own source file (if it exists)
+if ~isKey(dependencies, keyFuncName)
+    if hasSource
+        dependencies(keyFuncName) = {sourceFile};
+    else
+        dependencies(keyFuncName) = {};
+    end
+end
+    
+% Search up the stack trace for other calls to 'loadOrRun' to populate dependencies
+stack = dbstack();
+for i=2:length(stack)
+    if strcmpi(stack(i).name, 'loadorrun')
+        callerFuncName = stack(i-1).name;
+        if ~isempty(sourceFile) && exist(sourceFile, 'file')
+            % Note: 'callerFuncName' should always be a key of 'dependencies' since it was already
+            % called higher in the stack.
+            dependencies(callerFuncName) = horzcat(dependencies(callerFuncName), {sourceFile});
+        end
+    end
+end
+
+save(metaFile, 'dependencies');
 
 %% Get UID or create from query
 
@@ -124,33 +216,18 @@ if options.verbose == 2
     end
 end
 
-%% Check modification times and issue warning if source changed without updating cache
+%% Check modification times and (maybe) remove cache file if dependencies changed
 
-sourceInfo = dir(funcInfo.file);
-cacheInfo = dir(cacheFile);
-
-if ~isempty(sourceInfo)
-    if ~isempty(cacheInfo) && sourceInfo.datenum > cacheInfo.datenum
-        if ~strcmpi(options.onDependencyChange, 'ignore')
-            switch lower(options.onDependencyChange)
-                case {'warn'}
-                    warning(['Source file of %s changed since the cached results for %s were ' ...
-                        'last updated. Delete the cached file if the output is affected! ALSO '...
-                        'DELETE ANY DEPENDENCIES OF THIS FUNCTION SINCE THEY CANNOT ''SEE'' THAT '...
-                        'THERE HAS BEEN A CHANGE!!'], ...
-                        funcName, cacheFile);
-                case {'autoremove'}
-                    if options.verbose
-                        fprintf('Source file of %s  has changed!\n', funcName);
-                    end
-                    removeCacheFilesForFunction(options, funcName, sourceInfo.datenum);
-            end
-        elseif options.verbose == 2
-            fprintf('Timestamps indicate change for %s, but ignoring it...\n', funcName);
+if ~strcmpi(options.onDependencyChange, 'ignore')
+    if exist(cacheFile, 'file') && isKey(dependencies, keyFuncName)
+        % Get list of dependencies' source files to compare against the existing cache file (this
+        % includes the source file of 'func').
+        depdendencySources = dependencies(keyFuncName);
+        
+        for i=1:length(depdendencySources)
+            removeCacheIfSourceChanged(options, cacheFile, depdendencySources{i});
         end
     end
-elseif options.verbose == 2
-    fprintf('Unknown source file for %s -- cannot check timestamps\n', funcName);
 end
 
 %% Determine whether a call to func is needed
@@ -237,6 +314,10 @@ for i=1:length(fields)
     val = query.(key);
     if isfield(defaultQuery, key) && isequal(val, defaultQuery.(key))
         isDefault(i) = true;
+    elseif isfield(defaultQuery, key) && isstruct(val)
+        % If field is struct but doesn't match default, recurse to sub-structure *with defaults* as
+        % if this field is its own query.
+        uidParts{i} = [key '=(' queryToUID(val, defaultQuery.(key), numPrecision) ')'];
     else
         uidParts{i} = [key '=' repr(val, numPrecision)];
     end
@@ -269,24 +350,29 @@ elseif isstruct(obj)
         val = obj.(key);
         sParts{i} = [key '=' repr(val, numPrecision)];
     end
-    s = ['(' strjoin(sParts, ',') ')'];
+    s = ['(' strjoin(sParts, '-') ')'];
 end
 end
 
-function removeCacheFilesForFunction(options, funcName, beforeTimestamp)
-pattern = fullfile(options.cachePath, [funcName '-*']);
-if options.verbose
-    fprintf('Removing files for %s()\n', funcName);
-end
-files = dir(pattern);
-for i=1:length(files)
-    if files(i).datenum < beforeTimestamp
-        if options.verbose == 2
-            fprintf('\tremoving %s\n', files(i).name);
-        end
-        delete(fullfile(files(i).folder, files(i).name));
+function removeCacheIfSourceChanged(options, cacheFile, dependencySourceFile)
+% Check if sourceFile changed more recently than the saved cached file(s).
+sourceInfo = dir(dependencySourceFile);
+cacheInfo = dir(cacheFile);
+
+if ~isempty(sourceInfo) && ~isempty(cacheInfo) && cacheInfo.datenum < sourceInfo.datenum
+    message = ['Source file ' dependencySourceFile ' changed since the cached results for ' ...
+        cacheFile ' were last updated.'];
+    switch lower(options.onDependencyChange)
+        case {'warn'}
+            warning([message ' Delete the cached file if the output is affected!!']);
+        case {'autoremove'}
+            if options.verbose
+                disp([message ' Deleting it now!']);
+            end
+            delete(cacheFile);
     end
 end
+
 end
 
 function [uid, isHashed] = maybeHash( uid, maxLength )
