@@ -31,12 +31,13 @@ function varargout = loadOrRun(func, args, options)
 %   modified. Options are 'ignore' to skip checks, 'warn' to  print a warning, or 'autoremove' to
 %   automatically and aggressively delete any upstream file that may have been affected (default
 %   'warn')
+% - uid - a hard-coded unique identifier for creating the cached file. 'uid' and 'query' are
+%   mutually exclusive, and supplying both will result in an error. At least one is required.
 % - query - a query struct (see below). 'uid' and 'query' are mutually exclusive, and supplying both
 %   will result in an error. At least one is required.
 % - defaultQuery - a query struct (see below). Any values in  'options.query' that match those in
-%   'options.defaultQuery' will not be added to the UID. (default empty struct)
-% - uid - a hard-coded unique identifier for creating the cached file. 'uid' and 'query' are
-%   mutually exclusive, and supplying both will result in an error.
+%   'options.defaultQuery' will not be added to the UID. Any values in defaultQuery set to [] will
+%   always be ignored in 'query'. (default empty struct)
 %
 %
 % For example, if options.uid = 'myuid12345', then results will be saved in a file (in the
@@ -136,7 +137,7 @@ if isPackage
     % the package - as far as monitoring dependencies goes, this means that dependencies of 
     % packageA.packageFun and packageB.packageFun will be 'merged', which could trigger more
     % warnings and updates than is strictly necessary.
-    nameParts = split(funcName, '.');
+    nameParts = strsplit(funcName, '.');
     if options.verbose
         warning(['Note: package functions have surprising behavior! %s() will be stored as just '...
             '''%s'' when checking for changed dependencies - loadOrRun cannot tell the difference '...
@@ -305,24 +306,27 @@ end
 varargout = results;
 end
 
-function uid = queryToUID(query, defaultQuery, numPrecision)
+function [uid, allDefault] = queryToUID(query, defaultQuery, numPrecision)
 fields = fieldnames(query);
 uidParts = cell(size(fields));
 isDefault = false(size(fields));
 for i=1:length(fields)
     key = fields{i};
     val = query.(key);
-    if isfield(defaultQuery, key) && isequal(val, defaultQuery.(key))
+    if isfield(defaultQuery, key) && (isempty(defaultQuery.(key)) || isequal(val, defaultQuery.(key)))
         isDefault(i) = true;
     elseif isfield(defaultQuery, key) && isstruct(val)
         % If field is struct but doesn't match default, recurse to sub-structure *with defaults* as
-        % if this field is its own query.
-        uidParts{i} = [key '=(' queryToUID(val, defaultQuery.(key), numPrecision) ')'];
+        % if this field is its own query. Note that recursive call may still all be 'default' if
+        % fields are ignored with defaultQuery.substructure.field = [].
+        [recurseUid, isDefault(i)] = queryToUID(val, defaultQuery.(key), numPrecision);
+        uidParts{i} = [key '=(' recurseUid ')'];
     else
         uidParts{i} = [key '=' repr(val, numPrecision)];
     end
 end
-if all(isDefault)
+allDefault = all(isDefault);
+if allDefault
     uid = 'default';
 else
     uid = strjoin(uidParts(~isDefault), '-');
