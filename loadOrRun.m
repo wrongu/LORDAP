@@ -344,6 +344,12 @@ if isnumeric(obj)
     end
 elseif ischar(obj)
     s = strrep(obj, ' ', '_');
+elseif islogical(obj)
+    if obj
+        s = 'T';
+    else
+        s = 'F';
+    end
 elseif iscell(obj)
     s = ['{' strjoin(cellfun(@(sub) repr(sub, numPrecision), obj, 'UniformOutput', false), ',') '}'];
 elseif isstruct(obj)
