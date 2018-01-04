@@ -313,6 +313,7 @@ isDefault = false(size(fields));
 for i=1:length(fields)
     key = fields{i};
     val = query.(key);
+    assert(~isobject(val), 'Cannot convert arbitrary Matlab objects to a UID');
     if isfield(defaultQuery, key) && (isempty(defaultQuery.(key)) || isequal(val, defaultQuery.(key)))
         isDefault(i) = true;
     elseif isfield(defaultQuery, key) && isstruct(val)
