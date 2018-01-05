@@ -34,103 +34,149 @@ assert(exist(fullfile('mymeta', 'dependencies.mat'), 'file') > 0);
 rmdir('mycache', 's');
 rmdir('mymeta', 's');
 
-%% Test cache by query struct
-q = struct();
-q.a = 1;
-q.b = 'some text';
-q.c = {'foo', 2, 'bar'};
-q.d = struct('x', 100, 'y', {{'baz'}});
-options = struct('query', q);
+%% Test basic cache-by-args
 
-expected_query_string = 'a=1-b=some_text-c={foo,2,bar}-d=(x=100-y={baz})';
+args = {12, true, 'foo bar', struct('a', 1, 'b', {{'c', 'd'}}), {'baz', pi}};
+expected_uid = '12-T-foo_bar-(a=1-b={c-d})-{baz-3.142}';
 
-y1 = loadOrRun(@sin, {pi}, options);
-assert(exist(fullfile('.cache', ['sin-' expected_query_string '.mat']), 'file') > 0);
+val = loadOrRun(@funcWithManyArgs, args);
+assert(val == 12);
+assert(exist(fullfile('.cache', ['funcWithManyArgs-' expected_uid '.mat']), 'file') > 0);
 
 rmdir('.cache', 's');
 rmdir('.meta', 's');
 
-%% Test default query
-q = struct();
-q.a = 1;
-q.b = 'some text';
-q.c = {'foo', 2, 'bar'};
-q.d = struct('x', 100, 'y', {{'baz'}});
-dq = q;
-options = struct('query', q, 'defaultQuery', dq);
-expected_query_string = 'default';
-y1 = loadOrRun(@sin, {pi}, options);
-assert(exist(fullfile('.cache', ['sin-' expected_query_string '.mat']), 'file') > 0);
+%% Test basic default args
 
-q.a = 2;
-options = struct('query', q, 'defaultQuery', dq);
-expected_query_string = 'a=2';
-y1 = loadOrRun(@sin, {pi}, options);
-assert(exist(fullfile('.cache', ['sin-' expected_query_string '.mat']), 'file') > 0);
+args = {12, true, 'foo bar', struct('a', 1, 'b', {{'c', 'd'}}), {'baz', pi}};
+expected_uid = 'default-default-default-(a=1-b={c-d})-{baz-3.142}';
+options = struct('defaultArgs', {{12, true, 'foo bar'}});
+val = loadOrRun(@funcWithManyArgs, args, options);
+assert(val == 12);
+assert(exist(fullfile('.cache', ['funcWithManyArgs-' expected_uid '.mat']), 'file') > 0);
 
-q.a = 1;
-q.d = struct('x', 101, 'y', {{'baz'}});
-options = struct('query', q, 'defaultQuery', dq);
-expected_query_string = 'd=(x=101)';  % Note that d.y is still 'default'
-y1 = loadOrRun(@sin, {pi}, options);
-assert(exist(fullfile('.cache', ['sin-' expected_query_string '.mat']), 'file') > 0);
+args{1} = 13;
+options.defaultString = 'xx';
+expected_uid = '13-xx-xx-(a=1-b={c-d})-{baz-3.142}';
+val = loadOrRun(@funcWithManyArgs, args, options);
+assert(val == 13);
+assert(exist(fullfile('.cache', ['funcWithManyArgs-' expected_uid '.mat']), 'file') > 0);
+
+args{1} = 12;
+options.defaultArgs = args;
+expected_uid = 'xx';
+val = loadOrRun(@funcWithManyArgs, args, options);
+assert(val == 12);
+assert(exist(fullfile('.cache', ['funcWithManyArgs-' expected_uid '.mat']), 'file') > 0);
 
 rmdir('.cache', 's');
 rmdir('.meta', 's');
 
-%% Test 'ignore' fields using empty array in default Query
+%% Test recursive default args in a struct
 
-% Set default query to empty to fully ignore a field
-q.a = 1;
-q.b = 'some text';
-q.c = {'foo', 2, 'bar'};
-q.d = struct('x', 100, 'y', {{'baz'}});
-dq = q;
-dq.a = []; % Always ignore 'a'
-options = struct('query', q, 'defaultQuery', dq);
-expected_query_string = 'default';
-y1 = loadOrRun(@sin, {pi}, options);
-assert(exist(fullfile('.cache', ['sin-' expected_query_string '.mat']), 'file') > 0);
-options.query.a = 2;
-y2 = loadOrRun(@sin, {pi/2}, options);
-assert(y1 == y2, 'Since query.a is ignored, y2 should load cached results from y1 even though query.a changed');
+args = {12, true, 'foo bar', struct('a', 1, 'b', {{'c', 'd'}}), {'baz', pi}};
+options = struct('defaultArgs', {args});
+args{4} = struct('a', 1, 'b', {{'x', 'y'}});
+expected_uid = 'default-default-default-(a=default-b={x-y})-default';
+val = loadOrRun(@funcWithManyArgs, args, options);
+assert(val == 12);
+assert(exist(fullfile('.cache', ['funcWithManyArgs-' expected_uid '.mat']), 'file') > 0);
 
-% Try ignoring a field in a sub-structure
-options.query.d.x = 101;
-expected_query_string = 'd=(x=101)';
-y3 = loadOrRun(@sin, {options.query.d.x}, options);
-assert(exist(fullfile('.cache', ['sin-' expected_query_string '.mat']), 'file') > 0);
-options.query.d.x = 102;
-options.defaultQuery.d.x = [];
-y4 = loadOrRun(@sin, {options.query.d.x}, options);
-assert(y4 == y1, 'Since d.x is ignored, y4 should revert to ''default'' value computed in y1');
+rmdir('.cache', 's');
+rmdir('.meta', 's');
 
-options.query.d.y = {'foo'};
-expected_query_string = 'd=(y={foo})';
-y5 = loadOrRun(@sin, {pi/3}, options);
-assert(exist(fullfile('.cache', ['sin-' expected_query_string '.mat']), 'file') > 0, 'query.d.x is ignored, but query.d.y should not be affected');
-assert(y5 == sin(pi/3));
+%% Test recursive default args in a cell array
+
+args = {12, true, 'foo bar', struct('a', 1, 'b', {{'c', 'd'}}), {'baz', pi}};
+options = struct('defaultArgs', {args});
+args{5} = {'baz', 0};
+expected_uid = 'default-default-default-default-{default-0}';
+val = loadOrRun(@funcWithManyArgs, args, options);
+assert(val == 12);
+assert(exist(fullfile('.cache', ['funcWithManyArgs-' expected_uid '.mat']), 'file') > 0);
+
+rmdir('.cache', 's');
+rmdir('.meta', 's');
+
+%% Test basic ignore args with default set to []
+
+args = {12, true, 'foo bar', struct('a', 1, 'b', {{'c', 'd'}}), {'baz', pi}};
+expected_uid = 'default-default-(a=1-b={c-d})-{baz-3.142}';
+options = struct('defaultArgs', {{12, [], 'foo bar'}});
+val = loadOrRun(@funcWithManyArgs, args, options);
+assert(val == 12);
+assert(exist(fullfile('.cache', ['funcWithManyArgs-' expected_uid '.mat']), 'file') > 0);
+% Changing an ignored value should have no effect - previous cached result is loaded
+args{2} = false;
+val2 = loadOrRun(@funcWithManyArgs, args, options);
+assert(val2 == val);
+
+rmdir('.cache', 's');
+rmdir('.meta', 's');
+
+%% Test recursive ignore args in a struct
+
+args = {10, true, 'foo bar', struct('a', 1, 'b', {{'c', 'd'}}), {'baz', pi}};
+options = struct('defaultArgs', {args});
+options.defaultArgs{1} = 12;
+options.defaultArgs{4} = struct('a', 1, 'b', []); % ignore b but not a
+expected_uid = '10-default-default-default-default';
+val = loadOrRun(@funcWithManyArgs, args, options);
+assert(val == 10);
+assert(exist(fullfile('.cache', ['funcWithManyArgs-' expected_uid '.mat']), 'file') > 0);
+
+args{1} = 11;
+args{4}.a = 2;
+expected_uid = '11-default-default-(a=2)-default';
+val = loadOrRun(@funcWithManyArgs, args, options);
+assert(val == 11);
+assert(exist(fullfile('.cache', ['funcWithManyArgs-' expected_uid '.mat']), 'file') > 0);
+
+rmdir('.cache', 's');
+rmdir('.meta', 's');
+
+%% Test recursive ignore args in a cell array
+
+args = {100, true, 'foo bar', struct('a', 1, 'b', {{'c', 'd'}}), {'baz', pi}};
+options = struct('defaultArgs', {args});
+options.defaultArgs{1} = 12;
+options.defaultArgs{5} = {[], pi}; % ignore 1st element of cell array but not 2nd
+expected_uid = '100-default-default-default-default';
+val = loadOrRun(@funcWithManyArgs, args, options);
+assert(val == 100);
+assert(exist(fullfile('.cache', ['funcWithManyArgs-' expected_uid '.mat']), 'file') > 0);
+
+args{1} = 101;
+args{5}{2} = 0;
+expected_uid = '101-default-default-default-{0}';
+val = loadOrRun(@funcWithManyArgs, args, options);
+assert(val == 101);
+assert(exist(fullfile('.cache', ['funcWithManyArgs-' expected_uid '.mat']), 'file') > 0);
 
 rmdir('.cache', 's');
 rmdir('.meta', 's');
 
 %% Test multiple output args
 
-q = struct();
-q.a = 1;
-q.b = 1;
-options = struct('query', q);
-x1 = loadOrRun(@twoOut, {q.a, q.b}, options);
+x1 = loadOrRun(@twoOut, {1, 1});
+assert(x1 == 2);
 try
-    [x1, y1] = loadOrRun(@twoOut, {q.a, q.b}, options);
+    [x1, y1] = loadOrRun(@twoOut, {q.a, q.b});
     assert(false, 'Getting two args after a single arg should fail');
 catch
 end
 
-q.b = 2;
-options.query = q;
-[x1, ~] = loadOrRun(@twoOut, {q.a, q.b}, options);
-[x1, y1] = loadOrRun(@twoOut, {q.a, q.b}, options);
+[x1, ~] = loadOrRun(@twoOut, {1, 2});
+assert(x1 == 3);
+[x1, y1] = loadOrRun(@twoOut, {1, 2});
+assert(x1 == 3);
+assert(y1 == -1);
+
+try
+    loadOrRun(@twoOut, {1, 2});
+    assert(false, 'Calling without outputs after caching with outputs should fail');
+catch
+end
 
 rmdir('.cache', 's');
 rmdir('.meta', 's');
@@ -171,36 +217,38 @@ rmdir('.meta', 's');
 
 %% Test updated dependency -- call from top
 
-q = struct();
-q.val = 1;
-options = struct('query', q, 'onDependencyChange', 'warn');
-val = loadOrRun(@dependencyTop, {q.val, options}, options);
+options = struct();
+options.onDependencyChange = 'warn';
+options.defaultArgs = {[]}; % ignore first 'options' arg but not second numeric arg.
+val = loadOrRun(@dependencyTop, {options, 1}, options);
 assert(val == 2);
-assert(exist(fullfile('.cache', 'dependencyBottom-val=1.mat'), 'file') > 0);
-assert(exist(fullfile('.cache', 'dependencyTop-val=1.mat'), 'file') > 0);
+assert(exist(fullfile('.cache', 'dependencyBottom-1.mat'), 'file') > 0);
+assert(exist(fullfile('.cache', 'dependencyTop-1.mat'), 'file') > 0);
 
 % Modify 'bottom' (update it's timestamp with 'touch')
 pause(1);
 !touch testing/dependencyBottom.m
 
 sourceInfo = dir(fullfile('testing', 'dependencyBottom.m'));
-cacheInfo = dir(fullfile('.cache', 'dependencyBottom-val=1.mat'));
+cacheInfo = dir(fullfile('.cache', 'dependencyBottom-1.mat'));
 assert(cacheInfo.datenum < sourceInfo.datenum, 'something went wrong with system call ''touch''');
 
-val = loadOrRun(@dependencyTop, {q.val, options}, options);
+val = loadOrRun(@dependencyTop, {options, 1}, options);
+assert(val == 2);
 
 % Warning should have been issued, and .mat file should NOT have been recomputed
 sourceInfo = dir(fullfile('testing', 'dependencyBottom.m'));
-cacheInfo = dir(fullfile('.cache', 'dependencyBottom-val=1.mat'));
+cacheInfo = dir(fullfile('.cache', 'dependencyBottom-1.mat'));
 assert(cacheInfo.datenum < sourceInfo.datenum, 'in ''warn'' mode, dependency change should not trigger an update');
 
 options.onDependencyChange = 'autoremove';
 pause(1);
-val = loadOrRun(@dependencyTop, {q.val, options}, options);
+val = loadOrRun(@dependencyTop, {options, 1}, options);
+assert(val == 2);
 sourceInfo = dir(fullfile('testing', 'dependencyBottom.m'));
-cacheInfoBottom = dir(fullfile('.cache', 'dependencyBottom-val=1.mat'));
+cacheInfoBottom = dir(fullfile('.cache', 'dependencyBottom-1.mat'));
 assert(cacheInfoBottom.datenum > sourceInfo.datenum, 'in ''autoremove'' mode, dependency change SHOULD trigger an update');
-cacheInfoTop = dir(fullfile('.cache', 'dependencyTop-val=1.mat'));
+cacheInfoTop = dir(fullfile('.cache', 'dependencyTop-1.mat'));
 assert(cacheInfoTop.datenum > sourceInfo.datenum, 'in ''autoremove'' mode, dependency change SHOULD trigger an update');
 
 rmdir('.cache', 's');
@@ -208,35 +256,38 @@ rmdir('.meta', 's');
 
 %% Test updated dependency -- call from bottom
 
-q = struct();
-q.val = 1;
-options = struct('query', q, 'onDependencyChange', 'warn');
-val = loadOrRun(@dependencyTop, {q.val, options}, options);
+options = struct();
+options.onDependencyChange = 'warn';
+options.defaultArgs = {[]}; % ignore first 'options' arg but not second numeric arg.
+val = loadOrRun(@dependencyTop, {options, 1}, options);
 assert(val == 2);
-assert(exist(fullfile('.cache', 'dependencyBottom-val=1.mat'), 'file') > 0);
-assert(exist(fullfile('.cache', 'dependencyTop-val=1.mat'), 'file') > 0);
+assert(exist(fullfile('.cache', 'dependencyBottom-1.mat'), 'file') > 0);
+assert(exist(fullfile('.cache', 'dependencyTop-1.mat'), 'file') > 0);
 
 % Modify 'bottom' (update it's timestamp with 'touch')
 pause(1);
 !touch testing/dependencyBottom.m
 
 sourceInfo = dir(fullfile('testing', 'dependencyBottom.m'));
-cacheInfo = dir(fullfile('.cache', 'dependencyTop-val=1.mat'));
+cacheInfo = dir(fullfile('.cache', 'dependencyTop-1.mat'));
 assert(cacheInfo.datenum < sourceInfo.datenum, 'something went wrong with system call ''touch''');
 
 % Directly call bottom of call stack
-val = loadOrRun(@dependencyBottom, {q.val}, options);
+options.defaultArgs = {};
+val = loadOrRun(@dependencyBottom, {1}, options);
+assert(val == 2);
 
 % Warning should have been issued, and both .mat files should still exist
-assert(exist(fullfile('.cache', 'dependencyTop-val=1.mat'), 'file') > 0, 'in ''warn'' mode, dependency change should not trigger an update');
-assert(exist(fullfile('.cache', 'dependencyBottom-val=1.mat'), 'file') > 0, 'in ''warn'' mode, dependency change should not trigger an update');
+assert(exist(fullfile('.cache', 'dependencyTop-1.mat'), 'file') > 0, 'in ''warn'' mode, dependency change should not trigger an update');
+assert(exist(fullfile('.cache', 'dependencyBottom-1.mat'), 'file') > 0, 'in ''warn'' mode, dependency change should not trigger an update');
 
 options.onDependencyChange = 'autoremove';
 pause(1);
-val = loadOrRun(@dependencyBottom, {q.val}, options);
-cacheInfo = dir(fullfile('.cache', 'dependencyBottom-val=1.mat'));
+val = loadOrRun(@dependencyBottom, {1}, options);
+assert(val == 2);
+cacheInfo = dir(fullfile('.cache', 'dependencyBottom-1.mat'));
 assert(cacheInfo.datenum > sourceInfo.datenum, 'in ''autoremove'' mode, cache for ''bottom'' should have been updated!');
-assert(exist(fullfile('.cache', 'dependencyTop-val=1.mat'), 'file') > 0, 'expected behavior is that calling ''bottom'' does not auto-remove ''top'' (but it will be removed by a call to ''top'')');
+assert(exist(fullfile('.cache', 'dependencyTop-1.mat'), 'file') > 0, 'expected behavior is that calling ''bottom'' does not auto-remove ''top'' (but it will be removed by a call to ''top'')');
 
 rmdir('.cache', 's');
 rmdir('.meta', 's');
@@ -248,25 +299,28 @@ options = struct('uid', '12345');
 
 % Test naming conventions for caching package functions
 outA = loadOrRun(@packageA.packageFun, {val}, options);
-assert(outA == 70);
+assert(outA == 10 * val);
 expected_cache_name = fullfile('.cache', 'packageA.packageFun-12345.mat');
-assert(exist(expected_cache_name, 'file') > 0, 'Cache name should include package');
+assert(exist(expected_cache_name, 'file') > 0, 'Cache name should include packageA');
 origCacheA = dir(expected_cache_name);
 
 % Test behavior when two packages have a function with the same name
-pause(1);
+pause(.1);
 outB = loadOrRun(@packageB.packageFun, {val, val, options}, options);
 assert(outB ~= outA, 'Package functions of the same name should not have name collisions - new value should have been computed for packageB.packageFun');
 expected_cache_name = fullfile('.cache', 'packageB.packageFun-12345.mat');
+assert(exist(expected_cache_name, 'file') > 0, 'Cache name should include packageB');
 
-% Test 'onDependencyChange' for package functions -- expected behavior is that name collisions cause extra updates.
-% Note: packageB.packageFun depends on @twoOut, but packageA.packageFun does not. Because of the name collision, an update to @twoOut should still trigger
-% packageA.packageFun to be recomputed
+% Test 'onDependencyChange' for package functions -- expected behavior is that name collisions cause
+% extra updates since packageA.packageFun and packageB.packageFun are combined into a single
+% 'packageFun' entry in the dependencies table.
+% Note: packageB.packageFun depends on @twoOut, but packageA.packageFun does not. Because of the
+% name collision, an update to @twoOut should still trigger packageA.packageFun to be recomputed
 options.onDependencyChange = 'autoremove';
 pause(1);
 !touch testing/twoOut.m
 outA = loadOrRun(@packageA.packageFun, {val * 2}, options);
-assert(outA == 140, 'New value should have been computed, triggered by update to packageB''s dependency');
+assert(outA == 10 * val * 2, 'New value should have been computed, triggered by update to packageB''s dependency');
 expected_cache_name = fullfile('.cache', 'packageA.packageFun-12345.mat');
 newCacheA = dir(expected_cache_name);
 assert(newCacheA.datenum > origCacheA.datenum, 'New value should have been computed, triggered by update to packageB''s dependency');
