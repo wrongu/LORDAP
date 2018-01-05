@@ -15,7 +15,8 @@ function varargout = loadOrRun(func, args, options)
 %    [x1, x2] = LOADORRUN(@func, args);
 %
 %
-% 'options' is a struct. It may contain the following fields to control the behavior of LOADORRUN:
+% 'options' is an optional struct controlling the behavior of LOADORRUN. It may contain any of the
+% following fields:
 % - cachePath - where save results (default '.cache/'). Note that the '.' prefix makes the directory
 %   hidden on unix and linux systems.
 % - metaPath - where to save metadata about function dependencies (default '.meta/')
@@ -31,25 +32,22 @@ function varargout = loadOrRun(func, args, options)
 %   modified. Options are 'ignore' to skip checks, 'warn' to  print a warning, or 'autoremove' to
 %   automatically and aggressively delete any upstream file that may have been affected (default
 %   'warn')
-% - uid - a hard-coded unique identifier for creating the cached file. 'uid' and 'query' are
-%   mutually exclusive, and supplying both will result in an error. At least one is required.
-% - query - a query struct (see below). 'uid' and 'query' are mutually exclusive, and supplying both
-%   will result in an error. At least one is required.
-% - defaultQuery - a query struct (see below). Any values in  'options.query' that match those in
-%   'options.defaultQuery' will not be added to the UID. Any values in defaultQuery set to [] will
-%   always be ignored in 'query'. (default empty struct)
-%
+% - uid - a hard-coded unique identifier for creating the cached file. This overrides the UID that
+%   would have been created based on args.
+% - defaultArgs - a cell array of the same size or smaller than args. Any args that match those in
+%   'options.defaultArgs' will not be added to the UID. Any values in defaultArgs set to [] will
+%   always be ignored regardless of value. Defaults are applied recursively to struct or cell array
+%   arguments.
+% - defaultString - a short string to replace any args that are ignored or have default values.
+%   (default 'default')
 %
 % For example, if options.uid = 'myuid12345', then results will be saved in a file (in the
 % options.cachePath directory) called '<funcName>-myuid12345.mat' (where <funcName> is the string
 % name of 'func'). When using the 'uid' option, it is the responsibility of the user to ensure that
-% distinct function calls are given different IDs. Use 'options.query' to automate the construction
-% of an identifier. For example, if query.a = 7 and query.b = 'foo', then results will be saved in a
-% file called '<funcName>-a=7-b=foo.mat'. In general, a "query struct" defines parameter names and
-% values and is used to automatically construct a uid. Values of a query struct may be numeric,
-% strings, another struct, or a cell array. Query fields and function names should be kept short to
-% avoid long filenames. If at any point a filename becomes too long, it will be hashed to something
-% like '<funcName>-AF4D2F80.mat', or some other random string of hex characters.
+% distinct function calls are given different IDs. When options.uid is not supplied, a UID is
+% automatically constructed from 'args'. Args may be numeric, logical, strings, structs, or cell
+% arrays. If at any point a filename becomes too long, it will be hashed to something like
+% '<funcName>-AF4D2F80.mat', or some other random string of hex characters.
 %
 %
 % The options.cachePath directory will be populated with
@@ -63,7 +61,7 @@ if nargin < 3, options = struct(); end
 
 %% Configuration and initialization
 
-% Set up default options
+% Set up default options.
 if ~isfield(options, 'cachePath'), options.cachePath = fullfile(pwd, '.cache'); end
 if ~isfield(options, 'metaPath'), options.metaPath = fullfile(pwd, '.meta'); end
 if ~isfield(options, 'recompute'), options.recompute = false; end
@@ -71,13 +69,11 @@ if ~isfield(options, 'verbose'), options.verbose = false; end
 if ~isfield(options, 'errorHandling'), options.errorHandling = 'none'; end
 if ~isfield(options, 'numPrecision'), options.numPrecision = 4; end
 if ~isfield(options, 'onDependencyChange'), options.onDependencyChange = 'warn'; end
-if ~isfield(options, 'defaultQuery'), options.defaultQuery = struct(); end
-if ~isfield(options, 'uid') && ~isfield(options, 'query')
-    error('Must specify either a string uid or a query struct!');
-elseif isfield(options, 'uid') && isfield(options, 'query')
-    error('Must only specify one of ''uid'' or ''query''!');
-end
+if ~isfield(options, 'defaultArgs'), options.defaultArgs = {}; end
+if ~isfield(options, 'defaultString'), options.defaultString = 'default'; end
 
+% Check inputs.
+assert(iscell(args), 'loadOrRun(@fun, args): args must be a cell array');
 assert(any(options.verbose == [0 1 2]));
 assert(any(strcmpi(options.errorHandling, {'cache', 'none'})));
 assert(any(strcmpi(options.onDependencyChange, {'ignore', 'warn', 'autoremove'})));
@@ -184,27 +180,37 @@ end
 
 save(metaFile, 'dependencies');
 
-%% Get UID or create from query
+%% Get UID or create from args
 
-% Read or construct uid for this call.
 if isfield(options, 'uid')
     uid = options.uid;
+
+    % Remove '.mat' extension if it is given in the uid.
+    if length(uid) > 4 && strcmp(options.uid(end-3:end), '.mat')
+        uid = uid(1:end-4);
+    end
 else
-    % Construct uid from function name and query
-    uid = queryToUID(options.query, options.defaultQuery, options.numPrecision);
+    % Call 'argToString' as if the cell array of args is a single arg, which will return a string
+    % representation of all args surrounded with curly braces since it is a cell array.
+    uid = argToString(args, options.numPrecision, options.defaultArgs);
+    
+    % Strip the curly braces.
+    if strcmp(uid(1), '{')
+        uid = uid(2:end-1);
+    end
+    
+    % Replace 'default' placeholder with user-supplied default-string, if given.
+    if ~strcmp(options.defaultString, 'default')
+        uid = strrep(uid, 'default', options.defaultString);
+    end
 end
 
-[~, uid, ext] = fileparts(uid);
-% if the uid itself contains a '.' and does not end in '.mat', it will
-% be split across 'uid' and 'ext'.
-if ~strcmp(ext, '.mat'), uid = strcat(uid, ext); end
-
 % Max name length on unix is 255. Max length is reduced by length(funcName) because '<funcName>-'
-% will be prepended. 6 additional characters are subtracted off for the '.mat' or '.error' suffix
+% will be prepended. 6 additional characters are subtracted off for the '.error' extension.
 MAX_FILENAME_LENGTH = 255 - (length(funcName) + 1) - 6;
 [uidFinal, isHashed] = maybeHash(uid, MAX_FILENAME_LENGTH);
 
-% After sorting out the query struct and hashing, prepend '<funcName>-' and get filenames.
+% After sorting out the uid and hashing, prepend '<funcName>-' and get filenames.
 uidFinal = [funcName '-' uidFinal];
 cacheFile = fullfile(options.cachePath, [uidFinal '.mat']);
 idFile = fullfile(options.cachePath, [uidFinal '.id.mat']);
@@ -306,42 +312,84 @@ end
 varargout = results;
 end
 
-function [uid, allDefault] = queryToUID(query, defaultQuery, numPrecision)
-fields = fieldnames(query);
-uidParts = cell(size(fields));
-isDefault = false(size(fields));
-for i=1:length(fields)
-    key = fields{i};
-    val = query.(key);
-    assert(~isobject(val), 'Cannot convert arbitrary Matlab objects to a UID');
-    if isfield(defaultQuery, key) && (isempty(defaultQuery.(key)) || isequal(val, defaultQuery.(key)))
-        isDefault(i) = true;
-    elseif isfield(defaultQuery, key) && isstruct(val)
-        % If field is struct but doesn't match default, recurse to sub-structure *with defaults* as
-        % if this field is its own query. Note that recursive call may still all be 'default' if
-        % fields are ignored with defaultQuery.substructure.field = [].
-        [recurseUid, isDefault(i)] = queryToUID(val, defaultQuery.(key), numPrecision);
-        uidParts{i} = [key '=(' recurseUid ')'];
-    else
-        uidParts{i} = [key '=' repr(val, numPrecision)];
+function [str, isDefault, isIgnored] = argToString(arg, numPrecision, defaultArg)
+assert(~isobject(arg), 'Cannot convert Matlab objects to a UID; use numeric, logical, string, struct, or cell arguments.');
+
+isDefault = false;
+isIgnored = false;
+
+% With no default, simply call repr on the input
+if nargin == 2
+    str = repr(arg, numPrecision);
+    return
+
+% Check if arg matches default value
+elseif isequal(arg, defaultArg)
+    isDefault = true;
+
+% Ignore arg entirely if default is [] (note: this does not match '' or {})
+elseif isequal(defaultArg, [])
+    str = '';
+    isIgnored = true;
+
+% Here, default was given but does not match. Recurse to each element of the cell array *with
+% defaults* as if each element of the cell array is its own arg.
+elseif iscell(arg)
+    argParts = cell(1, length(arg));
+    defaultParts = false(1, length(arg));
+    ignoredParts = false(1, length(arg));
+    
+    for i=1:length(arg)
+        if length(defaultArg) >= i
+            [argParts{i}, defaultParts(i), ignoredParts(i)] = argToString(arg{i}, numPrecision, defaultArg{i});
+        else
+            [argParts{i}, defaultParts(i), ignoredParts(i)] = argToString(arg{i}, numPrecision);
+        end
     end
-end
-allDefault = all(isDefault);
-if allDefault
-    uid = 'default';
+
+    isIgnored = all(ignoredParts);
+    isDefault = all(defaultParts(~ignoredParts));
+    str = ['{' strjoin(argParts(~ignoredParts), '-') '}'];
+
+% As in the previous case, recurse to fields of the struct. Note that recursive call may still all
+% be 'default' if fields are ignored with defaultArg.substructure.field = [].
+elseif isstruct(arg)
+    fields = fieldnames(arg);
+    argParts = cell(1, length(fields));
+    defaultParts = false(1, length(fields));
+    ignoredParts = false(1, length(arg));
+    
+    for i=1:length(fields)
+        key = fields{i};
+        if isfield(defaultArg, key)
+            [argParts{i}, defaultParts(i), ignoredParts(i)] = argToString(arg.(key), numPrecision, defaultArg.(key));
+        else
+            [argParts{i}, defaultParts(i), ignoredParts(i)] = argToString(arg.(key), numPrecision);
+        end
+        argParts{i} = [key '=' argParts{i}];
+    end
+
+    isIgnored = all(ignoredParts);
+    isDefault = all(defaultParts(~ignoredParts));
+    str = ['(' strjoin(argParts(~ignoredParts), '-') ')'];
+
+% Default was provided for numeric, logical, or string arg but didn't match; simply repr() it.
 else
-    uid = strjoin(uidParts(~isDefault), '-');
+    str = repr(arg, numPrecision);
 end
+
+% Resolve default results.
+if isDefault, str = 'default'; end
 end
 
 function s = repr(obj, numPrecision)
-% REPR get string representation of input. Input may be numeric, a string,
-% a cell array, or another struct.
+% REPR get string representation of input. Input may be numeric, logical, a string, a cell array, or
+% a struct.
 if isnumeric(obj)
     if isscalar(obj)
         s = num2str(obj, numPrecision);
     else
-        s = ['[' strjoin(arrayfun(@(num) num2str(num, numPrecision), obj, 'UniformOutput', false), ',') ']'];
+        s = ['[' strjoin(arrayfun(@(num) num2str(num, numPrecision), obj, 'UniformOutput', false), '-') ']'];
     end
 elseif ischar(obj)
     s = strrep(obj, ' ', '_');
@@ -352,7 +400,7 @@ elseif islogical(obj)
         s = 'F';
     end
 elseif iscell(obj)
-    s = ['{' strjoin(cellfun(@(sub) repr(sub, numPrecision), obj, 'UniformOutput', false), ',') '}'];
+    s = ['{' strjoin(cellfun(@(sub) repr(sub, numPrecision), obj, 'UniformOutput', false), '-') '}'];
 elseif isstruct(obj)
     fields = fieldnames(obj);
     sParts = cell(size(fields));
