@@ -313,7 +313,6 @@ varargout = results;
 end
 
 function [str, isDefault, isIgnored] = argToString(arg, numPrecision, defaultArg)
-assert(~isobject(arg), 'Cannot convert Matlab objects to a UID; use numeric, logical, string, struct, or cell arguments.');
 
 isDefault = false;
 isIgnored = false;
@@ -380,6 +379,11 @@ end
 
 % Resolve default results.
 if isDefault, str = 'default'; end
+
+% If not ignored, assert that arg was not a Matlab object -- these are not handled by repr().
+if ~isIgnored
+    assert(~isobject(arg), 'Cannot convert Matlab objects to a UID; use numeric, logical, string, struct, or cell arguments.');
+end
 end
 
 function s = repr(obj, numPrecision)
