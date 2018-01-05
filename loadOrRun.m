@@ -192,16 +192,11 @@ if isfield(options, 'uid')
 else
     % Call 'argToString' as if the cell array of args is a single arg, which will return a string
     % representation of all args surrounded with curly braces since it is a cell array.
-    uid = argToString(args, options.numPrecision, options.defaultArgs);
+    uid = argToString(args, options.numPrecision, options.defaultArgs, options.defaultString);
     
     % Strip the curly braces.
     if strcmp(uid(1), '{')
         uid = uid(2:end-1);
-    end
-    
-    % Replace 'default' placeholder with user-supplied default-string, if given.
-    if ~strcmp(options.defaultString, 'default')
-        uid = strrep(uid, 'default', options.defaultString);
     end
 end
 
@@ -312,7 +307,7 @@ end
 varargout = results;
 end
 
-function [str, isDefault, isIgnored] = argToString(arg, numPrecision, defaultArg)
+function [str, isDefault, isIgnored] = argToString(arg, numPrecision, defaultArg, defaultStr)
 
 isDefault = false;
 isIgnored = false;
@@ -340,7 +335,8 @@ elseif iscell(arg)
     
     for i=1:length(arg)
         if length(defaultArg) >= i
-            [argParts{i}, defaultParts(i), ignoredParts(i)] = argToString(arg{i}, numPrecision, defaultArg{i});
+            [argParts{i}, defaultParts(i), ignoredParts(i)] = ...
+                argToString(arg{i}, numPrecision, defaultArg{i}, defaultStr);
         else
             [argParts{i}, defaultParts(i), ignoredParts(i)] = argToString(arg{i}, numPrecision);
         end
@@ -361,7 +357,8 @@ elseif isstruct(arg)
     for i=1:length(fields)
         key = fields{i};
         if isfield(defaultArg, key)
-            [argParts{i}, defaultParts(i), ignoredParts(i)] = argToString(arg.(key), numPrecision, defaultArg.(key));
+            [argParts{i}, defaultParts(i), ignoredParts(i)] = ...
+                argToString(arg.(key), numPrecision, defaultArg.(key), defaultStr);
         else
             [argParts{i}, defaultParts(i), ignoredParts(i)] = argToString(arg.(key), numPrecision);
         end
@@ -377,8 +374,17 @@ else
     str = repr(arg, numPrecision);
 end
 
-% Resolve default results.
-if isDefault, str = 'default'; end
+% If arg was its default, check if the string is likely to be shortened by replacing it with the
+% 'default string'
+if isDefault
+    % Replace with default string if (1) arg is a struct, (2) arg is a cell array, or (3) arg is a
+    % string that is logner than the default string.
+    if isstruct(arg) || iscell(arg) || (ischar(arg) && length(arg) > length(defaultStr))
+        str = defaultStr;
+    else
+        str = repr(arg, numPrecision);
+    end
+end
 
 % If not ignored, assert that arg was not a Matlab object -- these are not handled by repr().
 if ~isIgnored

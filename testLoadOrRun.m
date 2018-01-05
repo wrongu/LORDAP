@@ -48,20 +48,24 @@ rmdir('.meta', 's');
 
 %% Test basic default args
 
-args = {12, true, 'foo bar', struct('a', 1, 'b', {{'c', 'd'}}), {'baz', pi}};
-expected_uid = 'default-default-default-(a=1-b={c-d})-{baz-3.142}';
-options = struct('defaultArgs', {{12, true, 'foo bar'}});
+args = {12, true, 'foo bar baz', struct('a', 1, 'b', {{'c', 'd'}}), {'baz', pi}};
+options = struct('defaultArgs', {args});
+args{2} = false;
+expected_uid = '12-F-default-default-default';
 val = loadOrRun(@funcWithManyArgs, args, options);
-assert(val == 12);
+assert(val == -12);
 assert(exist(fullfile('.cache', ['funcWithManyArgs-' expected_uid '.mat']), 'file') > 0);
 
+% Change 'default' to 'xx' in cache file names
 args{1} = 13;
+args{2} = true;
 options.defaultString = 'xx';
-expected_uid = '13-xx-xx-(a=1-b={c-d})-{baz-3.142}';
+expected_uid = '13-T-xx-xx-xx';
 val = loadOrRun(@funcWithManyArgs, args, options);
 assert(val == 13);
 assert(exist(fullfile('.cache', ['funcWithManyArgs-' expected_uid '.mat']), 'file') > 0);
 
+% Test all-default
 args{1} = 12;
 options.defaultArgs = args;
 expected_uid = 'xx';
@@ -76,8 +80,8 @@ rmdir('.meta', 's');
 
 args = {12, true, 'foo bar', struct('a', 1, 'b', {{'c', 'd'}}), {'baz', pi}};
 options = struct('defaultArgs', {args});
-args{4} = struct('a', 1, 'b', {{'x', 'y'}});
-expected_uid = 'default-default-default-(a=default-b={x-y})-default';
+args{4} = struct('a', 2, 'b', {{'c', 'd'}});
+expected_uid = '12-T-foo_bar-(a=2-b=default)-default';
 val = loadOrRun(@funcWithManyArgs, args, options);
 assert(val == 12);
 assert(exist(fullfile('.cache', ['funcWithManyArgs-' expected_uid '.mat']), 'file') > 0);
@@ -90,7 +94,13 @@ rmdir('.meta', 's');
 args = {12, true, 'foo bar', struct('a', 1, 'b', {{'c', 'd'}}), {'baz', pi}};
 options = struct('defaultArgs', {args});
 args{5} = {'baz', 0};
-expected_uid = 'default-default-default-default-{default-0}';
+expected_uid = '12-T-foo_bar-default-{baz-0}';  % 'baz' is too short to be replaced with 'default'
+val = loadOrRun(@funcWithManyArgs, args, options);
+assert(val == 12);
+assert(exist(fullfile('.cache', ['funcWithManyArgs-' expected_uid '.mat']), 'file') > 0);
+
+options.defaultString = 'X';
+expected_uid = '12-T-X-X-{X-0}';  % all strings shorter than 'X' are now replaced with 'X'
 val = loadOrRun(@funcWithManyArgs, args, options);
 assert(val == 12);
 assert(exist(fullfile('.cache', ['funcWithManyArgs-' expected_uid '.mat']), 'file') > 0);
@@ -100,9 +110,9 @@ rmdir('.meta', 's');
 
 %% Test basic ignore args with default set to []
 
-args = {12, true, 'foo bar', struct('a', 1, 'b', {{'c', 'd'}}), {'baz', pi}};
-expected_uid = 'default-default-(a=1-b={c-d})-{baz-3.142}';
-options = struct('defaultArgs', {{12, [], 'foo bar'}});
+args = {12, true, 'foo bar baz', struct('a', 1, 'b', {{'c', 'd'}}), {'baz', pi}};
+expected_uid = '12-default-(a=1-b={c-d})-{baz-3.142}';
+options = struct('defaultArgs', {{12, [], 'foo bar baz'}});
 val = loadOrRun(@funcWithManyArgs, args, options);
 assert(val == 12);
 assert(exist(fullfile('.cache', ['funcWithManyArgs-' expected_uid '.mat']), 'file') > 0);
@@ -118,16 +128,17 @@ rmdir('.meta', 's');
 
 args = {10, true, 'foo bar', struct('a', 1, 'b', {{'c', 'd'}}), {'baz', pi}};
 options = struct('defaultArgs', {args});
-options.defaultArgs{1} = 12;
 options.defaultArgs{4} = struct('a', 1, 'b', []); % ignore b but not a
-expected_uid = '10-default-default-default-default';
+args{4}.a = 100;
+args{4}.b = {'x', 'y', 'z'}; % ignored
+expected_uid = '10-T-foo_bar-(a=100)-default';
 val = loadOrRun(@funcWithManyArgs, args, options);
 assert(val == 10);
 assert(exist(fullfile('.cache', ['funcWithManyArgs-' expected_uid '.mat']), 'file') > 0);
 
 args{1} = 11;
 args{4}.a = 2;
-expected_uid = '11-default-default-(a=2)-default';
+expected_uid = '11-T-foo_bar-(a=2)-default';
 val = loadOrRun(@funcWithManyArgs, args, options);
 assert(val == 11);
 assert(exist(fullfile('.cache', ['funcWithManyArgs-' expected_uid '.mat']), 'file') > 0);
@@ -139,18 +150,11 @@ rmdir('.meta', 's');
 
 args = {100, true, 'foo bar', struct('a', 1, 'b', {{'c', 'd'}}), {'baz', pi}};
 options = struct('defaultArgs', {args});
-options.defaultArgs{1} = 12;
 options.defaultArgs{5} = {[], pi}; % ignore 1st element of cell array but not 2nd
-expected_uid = '100-default-default-default-default';
+args{5} = {'fizz', 'buzz', 0, 1, 2};
+expected_uid = '100-T-foo_bar-default-{buzz-0-1-2}'; % fizz is ignored
 val = loadOrRun(@funcWithManyArgs, args, options);
 assert(val == 100);
-assert(exist(fullfile('.cache', ['funcWithManyArgs-' expected_uid '.mat']), 'file') > 0);
-
-args{1} = 101;
-args{5}{2} = 0;
-expected_uid = '101-default-default-default-{0}';
-val = loadOrRun(@funcWithManyArgs, args, options);
-assert(val == 101);
 assert(exist(fullfile('.cache', ['funcWithManyArgs-' expected_uid '.mat']), 'file') > 0);
 
 rmdir('.cache', 's');
