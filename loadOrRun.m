@@ -224,10 +224,10 @@ if ~strcmpi(options.onDependencyChange, 'ignore')
     if exist(cacheFile, 'file') && isKey(dependencies, keyFuncName)
         % Get list of dependencies' source files to compare against the existing cache file (this
         % includes the source file of 'func').
-        depdendencySources = dependencies(keyFuncName);
+        dependencySources = dependencies(keyFuncName);
         
-        for i=1:length(depdendencySources)
-            removeCacheIfSourceChanged(options, cacheFile, depdendencySources{i});
+        for i=1:length(dependencySources)
+            removeCacheIfSourceChanged(options, cacheFile, dependencySources{i});
         end
     end
 end
@@ -309,26 +309,27 @@ end
 
 function [str, isDefault, isIgnored] = argToString(arg, numPrecision, defaultArg, defaultStr)
 
-isDefault = false;
-isIgnored = false;
-
 % With no default, simply call repr on the input
-if nargin == 2
+if nargin < 3
+    isDefault = false;
+    isIgnored = false;
     str = repr(arg, numPrecision);
     return
+elseif nargin < 4
+    error('If defaultArg is given, defaultStr must also be given');
+end
 
-% Check if arg matches default value
-elseif isequal(arg, defaultArg)
-    isDefault = true;
+isIgnored = isequal(defaultArg, []);
+isDefault = isequal(arg, defaultArg);
 
-% Ignore arg entirely if default is [] (note: this does not match '' or {})
-elseif isequal(defaultArg, [])
+if isIgnored
     str = '';
-    isIgnored = true;
+    return
+end
 
 % Here, default was given but does not match. Recurse to each element of the cell array *with
 % defaults* as if each element of the cell array is its own arg.
-elseif iscell(arg)
+if iscell(arg)
     argParts = cell(1, length(arg));
     defaultParts = false(1, length(arg));
     ignoredParts = false(1, length(arg));
@@ -346,8 +347,7 @@ elseif iscell(arg)
     isDefault = all(defaultParts(~ignoredParts));
     str = ['{' strjoin(argParts(~ignoredParts), '-') '}'];
 
-% As in the previous case, recurse to fields of the struct. Note that recursive call may still all
-% be 'default' if fields are ignored with defaultArg.substructure.field = [].
+% As in the previous case, recurse on each field of the struct.
 elseif isstruct(arg)
     fields = fieldnames(arg);
     argParts = cell(1, length(fields));
@@ -367,7 +367,9 @@ elseif isstruct(arg)
 
     isIgnored = all(ignoredParts);
     isDefault = all(defaultParts(~ignoredParts));
-    str = ['(' strjoin(argParts(~ignoredParts), '-') ')'];
+    % defaultParts are entirely excluded from UID. Since structs have 'key=' prepended, it becomes
+    % extremely unlikely that there will be a naming collision when keys are removed.
+    str = ['(' strjoin(argParts(~(ignoredParts | defaultParts)), '-') ')'];
 
 % Default was provided for numeric, logical, or string arg but didn't match; simply repr() it.
 else

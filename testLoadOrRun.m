@@ -81,7 +81,8 @@ rmdir('.meta', 's');
 args = {12, true, 'foo bar', struct('a', 1, 'b', {{'c', 'd'}}), {'baz', pi}};
 options = struct('defaultArgs', {args});
 args{4} = struct('a', 2, 'b', {{'c', 'd'}});
-expected_uid = '12-T-foo_bar-(a=2-b=default)-default';
+% Note the absence of 'b=default'; structs only include non-default fields.
+expected_uid = '12-T-foo_bar-(a=2)-default';
 val = loadOrRun(@funcWithManyArgs, args, options);
 assert(val == 12);
 assert(exist(fullfile('.cache', ['funcWithManyArgs-' expected_uid '.mat']), 'file') > 0);
@@ -131,6 +132,12 @@ options = struct('defaultArgs', {args});
 options.defaultArgs{4} = struct('a', 1, 'b', []); % ignore b but not a
 args{4}.a = 100;
 args{4}.b = {'x', 'y', 'z'}; % ignored
+expected_uid = '10-T-foo_bar-(a=100)-default';
+val = loadOrRun(@funcWithManyArgs, args, options);
+assert(val == 10);
+assert(exist(fullfile('.cache', ['funcWithManyArgs-' expected_uid '.mat']), 'file') > 0);
+
+args{4}.b = {1, 2, 3, 4}; % still ignored
 expected_uid = '10-T-foo_bar-(a=100)-default';
 val = loadOrRun(@funcWithManyArgs, args, options);
 assert(val == 10);
