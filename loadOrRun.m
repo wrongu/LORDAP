@@ -221,13 +221,15 @@ end
 %% Check modification times and (maybe) remove cache file if dependencies changed
 
 if ~strcmpi(options.onDependencyChange, 'ignore')
-    if exist(cacheFile, 'file') && isKey(dependencies, keyFuncName)
+    if (exist(cacheFile, 'file') || exist(errorFile, 'file')) && isKey(dependencies, keyFuncName)
         % Get list of dependencies' source files to compare against the existing cache file (this
         % includes the source file of 'func').
         dependencySources = dependencies(keyFuncName);
         
         for i=1:length(dependencySources)
             removeCacheIfSourceChanged(options, cacheFile, dependencySources{i});
+            % Also remove error files if dependencies changed since the error may now be fixed.
+            removeCacheIfSourceChanged(options, errorFile, dependencySources{i});
         end
     end
 end
@@ -250,9 +252,9 @@ end
 
 if strcmpi(options.errorHandling, 'cache') && exist(errorFile, 'file')
     f = fopen(errorFile, 'r');
-    errorText = fread(f);
+    errorText = fread(f, inf, 'uint8=>char');
     fclose(f);
-    error(errorText);
+    error(errorText(:)');
 end
 
 %% Call func or load cached results.
