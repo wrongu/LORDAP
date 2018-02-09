@@ -170,7 +170,7 @@ stack = dbstack();
 for i=2:length(stack)
     if strcmpi(stack(i).name, 'loadorrun')
         callerFuncName = stack(i-1).name;
-        if ~isempty(sourceFile) && exist(sourceFile, 'file')
+        if ~isempty(sourceFile) && exist(sourceFile, 'file') && ~ismember(sourceFile, dependencies(callerFuncName))
             % Note: 'callerFuncName' should always be a key of 'dependencies' since it was already
             % called higher in the stack.
             dependencies(callerFuncName) = horzcat(dependencies(callerFuncName), {sourceFile});
