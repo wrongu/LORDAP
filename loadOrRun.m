@@ -321,6 +321,13 @@ elseif nargin < 4
     error('If defaultArg is given, defaultStr must also be given');
 end
 
+if isobject(arg)
+    arg = struct(arg);
+    if nargin >= 3 && isobject(defaultArg)
+        defaultArg = struct(defaultArg);
+    end
+end
+
 isIgnored = isequal(defaultArg, []);
 isDefault = isequal(arg, defaultArg);
 
@@ -389,16 +396,16 @@ if isDefault
         str = repr(arg, numPrecision);
     end
 end
-
-% If not ignored, assert that arg was not a Matlab object -- these are not handled by repr().
-if ~isIgnored
-    assert(~isobject(arg), 'Cannot convert Matlab objects to a UID; use numeric, logical, string, struct, or cell arguments.');
-end
 end
 
 function s = repr(obj, numPrecision)
 % REPR get string representation of input. Input may be numeric, logical, a string, a cell array, or
-% a struct.
+% a struct. Objects are converted to structs, keeping field names and values.
+
+if isobject(obj)
+    obj = struct(obj);
+end
+
 if isnumeric(obj)
     if isscalar(obj)
         s = num2str(obj, numPrecision);
