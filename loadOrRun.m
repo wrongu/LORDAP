@@ -56,10 +56,15 @@ function varargout = loadOrRun(func, args, options)
 %                    check for hash collisions)
 %  3. <uid>.error  - text contents of an error message if options.errorHandling is 'cache' or
 %                    'warn'
+%
+% Copyright (c) 2018, Richard Lange
 
 if nargin < 3, options = struct(); end
 
 %% Configuration and initialization
+
+% Ensure that dependencies are on the path
+if exist('string2hash', 'file') ~= 2, addpath('string2hash'); end
 
 % Set up default options.
 if ~isfield(options, 'cachePath'), options.cachePath = fullfile(pwd, '.cache'); end
@@ -309,152 +314,6 @@ end
 varargout = results;
 end
 
-function [str, isDefault, isIgnored] = argToString(arg, numPrecision, defaultArg, defaultStr)
-
-% With no default, simply call repr on the input
-if nargin < 3
-    isDefault = false;
-    isIgnored = false;
-    str = repr(arg, numPrecision);
-    return
-elseif nargin < 4
-    error('If defaultArg is given, defaultStr must also be given');
-end
-
-if isobject(arg)
-    arg = struct(arg);
-    if nargin >= 3 && isobject(defaultArg)
-        defaultArg = struct(defaultArg);
-    end
-end
-
-isIgnored = isequal(defaultArg, []);
-isDefault = isequal(arg, defaultArg);
-
-if isIgnored
-    str = '';
-    return
-end
-
-% Here, default was given but does not match. Recurse to each element of the cell array *with
-% defaults* as if each element of the cell array is its own arg.
-if iscell(arg)
-    argParts = cell(1, length(arg));
-    defaultParts = false(1, length(arg));
-    ignoredParts = false(1, length(arg));
-    
-    for i=1:length(arg)
-        if length(defaultArg) >= i
-            [argParts{i}, defaultParts(i), ignoredParts(i)] = ...
-                argToString(arg{i}, numPrecision, defaultArg{i}, defaultStr);
-        else
-            [argParts{i}, defaultParts(i), ignoredParts(i)] = argToString(arg{i}, numPrecision);
-        end
-    end
-
-    isIgnored = all(ignoredParts);
-    isDefault = all(defaultParts(~ignoredParts));
-    str = ['{' strjoin(argParts(~ignoredParts), '-') '}'];
-
-% As in the previous case, recurse on each field of the struct.
-elseif isstruct(arg)
-    fields = fieldnames(arg);
-    argParts = cell(1, length(fields));
-    defaultParts = false(1, length(fields));
-    ignoredParts = false(1, length(arg));
-    
-    for i=1:length(fields)
-        key = fields{i};
-        if isfield(defaultArg, key)
-            [argParts{i}, defaultParts(i), ignoredParts(i)] = ...
-                argToString(arg.(key), numPrecision, defaultArg.(key), defaultStr);
-        else
-            [argParts{i}, defaultParts(i), ignoredParts(i)] = argToString(arg.(key), numPrecision);
-        end
-        argParts{i} = [key '=' argParts{i}];
-    end
-
-    isIgnored = all(ignoredParts);
-    isDefault = all(defaultParts(~ignoredParts));
-    % defaultParts are entirely excluded from UID. Since structs have 'key=' prepended, it becomes
-    % extremely unlikely that there will be a naming collision when keys are removed.
-    str = ['(' strjoin(argParts(~(ignoredParts | defaultParts)), '-') ')'];
-
-% Default was provided for numeric, logical, or string arg but didn't match; simply repr() it.
-else
-    str = repr(arg, numPrecision);
-end
-
-% If arg was its default, check if the string is likely to be shortened by replacing it with the
-% 'default string'
-if isDefault
-    % Replace with default string if (1) arg is a struct, (2) arg is a cell array, or (3) arg is a
-    % string that is logner than the default string.
-    if isstruct(arg) || iscell(arg) || (ischar(arg) && length(arg) > length(defaultStr))
-        str = defaultStr;
-    else
-        str = repr(arg, numPrecision);
-    end
-end
-end
-
-function s = repr(obj, numPrecision)
-% REPR get string representation of input. Input may be numeric, logical, a string, a cell array, or
-% a struct. Objects are converted to structs, keeping field names and values.
-
-if isobject(obj)
-    obj = struct(obj);
-end
-
-if isnumeric(obj)
-    if isscalar(obj)
-        s = num2str(obj, numPrecision);
-    else
-        s = ['[' strjoin(arrayfun(@(num) num2str(num, numPrecision), obj, 'UniformOutput', false), '-') ']'];
-    end
-elseif ischar(obj)
-    s = strrep(obj, ' ', '_');
-elseif islogical(obj)
-    if obj
-        s = 'T';
-    else
-        s = 'F';
-    end
-elseif iscell(obj)
-    s = ['{' strjoin(cellfun(@(sub) repr(sub, numPrecision), obj, 'UniformOutput', false), '-') '}'];
-elseif isstruct(obj)
-    fields = fieldnames(obj);
-    sParts = cell(size(fields));
-    for i=1:length(fields)
-        key = fields{i};
-        val = obj.(key);
-        sParts{i} = [key '=' repr(val, numPrecision)];
-    end
-    s = ['(' strjoin(sParts, '-') ')'];
-end
-end
-
-function removeCacheIfSourceChanged(options, cacheFile, dependencySourceFile)
-% Check if sourceFile changed more recently than the saved cached file(s).
-sourceInfo = dir(dependencySourceFile);
-cacheInfo = dir(cacheFile);
-
-if ~isempty(sourceInfo) && ~isempty(cacheInfo) && cacheInfo.datenum < sourceInfo.datenum
-    message = ['Source file ' dependencySourceFile ' changed since the cached results for ' ...
-        cacheFile ' were last updated.'];
-    switch lower(options.onDependencyChange)
-        case {'warn'}
-            warning([message ' Delete the cached file if the output is affected!!']);
-        case {'autoremove'}
-            if options.verbose
-                disp([message ' Deleting it now!']);
-            end
-            delete(cacheFile);
-    end
-end
-
-end
-
 function [uid, isHashed] = maybeHash( uid, maxLength )
 %MAYBE_HASH hashes uid if its length is larger than maxLength (default 250)
 if nargin < 2, maxLength = 250; end
@@ -468,54 +327,4 @@ else
     isHashed = false;
 end
 
-end
-
-function hash=string2hash(str,type)
-% This function generates a hash value from a text string
-%
-% hash=string2hash(str,type);
-%
-% inputs,
-%   str : The text string, or array with text strings.
-% outputs,
-%   hash : The hash value, integer value between 0 and 2^32-1
-%   type : Type of has 'djb2' (default) or 'sdbm'
-%
-% From c-code on : http://www.cse.yorku.ca/~oz/hash.html
-%
-% djb2
-%  this algorithm was first reported by dan bernstein many years ago
-%  in comp.lang.c
-%
-% sdbm
-%  this algorithm was created for sdbm (a public-domain reimplementation of
-%  ndbm) database library. it was found to do well in scrambling bits,
-%  causing better distribution of the keys and fewer splits. it also happens
-%  to be a good general hashing function with good distribution.
-%
-% example,
-%
-%  hash=string2hash('hello world');
-%  disp(hash);
-%
-% Function is written by D.Kroon University of Twente (June 2010)
-
-
-% From string to double array
-str=double(str);
-if(nargin<2), type='djb2'; end
-switch(type)
-    case 'djb2'
-        hash = 5381*ones(size(str,1),1);
-        for i=1:size(str,2)
-            hash = mod(hash * 33 + str(:,i), 2^32-1);
-        end
-    case 'sdbm'
-        hash = zeros(size(str,1),1);
-        for i=1:size(str,2)
-            hash = mod(hash * 65599 + str(:,i), 2^32-1);
-        end
-    otherwise
-        error('string_hash:inputs','unknown type');
-end
 end
