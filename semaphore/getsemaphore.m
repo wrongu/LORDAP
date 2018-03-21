@@ -72,7 +72,7 @@ pattern = sprintf('.%s.*.sem', uid);
         age = (now - other_sem_files(file_i).datenum) * SECS_PER_DAY;
         if age > PROBABLE_ERROR_WAIT_TIME
             warning('MATLAB:getsemaphore:oldfile', 'Found old semaphore file ''%s'' to delete (%ds old).', other_sem_files(file_i).name, round(age));
-            releasesemaphore(other_sem_files(file_i).name);
+            releasesemaphore(fullfile(path, other_sem_files(file_i).name));
         elseif ~strcmp(other_sem_files(file_i).name, ignoreName)
             files_to_wait_on(file_i) = true;
         end
