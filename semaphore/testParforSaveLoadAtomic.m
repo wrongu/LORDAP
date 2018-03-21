@@ -22,11 +22,11 @@ end
 val = 1;
 save('testing/data2.mat', 'val');
 
-parfor i=1:100
+parfor i=1:500
     sem = getsemaphore('data2');
     increment('testing/data2');
     releasesemaphore(sem);
 end
 
 contents = load('testing/data2.mat');
-assert(contents.val == 101, 'Atomicity is broken - each increment() should have happened serially');
+assert(contents.val == 501, 'Atomicity is broken - each increment() should have happened serially');

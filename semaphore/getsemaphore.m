@@ -28,11 +28,11 @@ PROBABLE_ERROR_WAIT_TIME = 30;
 
 % After creating a semaphore file, wait for a moment so that race conditions, if they exist, can
 % actually be detected.
-FILE_CREATION_PAUSE_TIME = 0.02;
+FILE_CREATION_PAUSE_TIME_MS = 10;
 
 % If there is a race condition, each process pauses for a random amount of time between 0 and this
-% many seconds.
-RACE_CONDITION_RESTART_MAX_WAIT = 0.1;
+% many milliseconds.
+RACE_CONDITION_RESTART_MAX_WAIT_MS = 100;
 
 % To distinguish the same UID across different jobs or processes, each generates its own random
 % identifier. This constant sets its range. Note the random ID will *not* be sensitive to and will
@@ -92,14 +92,14 @@ while ~timeout
     %% Check for race conditions - other processes may have stopped waiting at the same instant and created their own files
     
     % Give other processes a moment to catch up
-    pause(FILE_CREATION_PAUSE_TIME);
+    java.lang.Thread.sleep(floor(FILE_CREATION_PAUSE_TIME_MS));
     
     other_sem_files = checkOtherSemFiles(sem);
     
     % If in a race condition, pause for a random amount of time.
     if ~isempty(other_sem_files)
         releasesemaphore(sem);
-        pause(multiprocess_rand * RACE_CONDITION_RESTART_MAX_WAIT);
+        java.lang.Thread.sleep(floor(multiprocess_rand * RACE_CONDITION_RESTART_MAX_WAIT_MS));
     else
         return;
     end
