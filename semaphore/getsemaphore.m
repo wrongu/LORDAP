@@ -7,6 +7,10 @@ function sem = getsemaphore(uid, max_wait_time)
 %     ... do something quick that must be atomic
 %     releasesemaphore(sem);
 %
+%The UID may also contain a path plus the UID itself to specify the directory where the .sem file(s)
+%should be created. For example, if the UID is '/abc/def/xyz/identifier' then the semaphore files
+%will look like '/abc/def/xyz/.identifier.672486.sem'
+%
 % Copyright (c) 2018 Richard Lange
 %
 % Loosely based on the semaphore functions found here:
@@ -44,7 +48,14 @@ RANDOM_INDEX_MAX = 1000000;
 MAX_UID_STRING_LENGTH = 200;
 
 % Ensure that UID is a string.
-if ~ischar(uid), uid = repr(uid); end
+if ~ischar(uid)
+    uid = repr(uid);
+    path = pwd;
+else
+    % Extract path part of UID if it exists (but only if it was a string originally)
+    [path, name, ext] = fileparts(uid);
+    uid = [name ext];
+end
 
 % Ensure that UID is not too long by hashing it if it is.
 if length(uid) > MAX_UID_STRING_LENGTH, uid = sprintf('%x', string2hash(uid)); end
@@ -54,7 +65,7 @@ if length(uid) > MAX_UID_STRING_LENGTH, uid = sprintf('%x', string2hash(uid)); e
 pattern = sprintf('.%s.*.sem', uid);
 
     function [other_sem_files] = checkOtherSemFiles(ignoreName)
-    other_sem_files = dir(pattern);
+    other_sem_files = dir(fullfile(path, pattern));
     files_to_wait_on = false(size(other_sem_files));
     
     for file_i=1:length(other_sem_files)
@@ -86,7 +97,8 @@ while ~timeout
     %% Claim the semaphore by creating a file
     
     my_rand_id = floor(RANDOM_INDEX_MAX * multiprocess_rand);
-    sem = sprintf('.%s.%d.sem', uid, my_rand_id);
+    my_sem_filename = sprintf('.%s.%d.sem', uid, my_rand_id);
+    sem = fullfile(path, my_sem_filename);
     emptyfile(sem);
     
     %% Check for race conditions - other processes may have stopped waiting at the same instant and created their own files
@@ -94,7 +106,7 @@ while ~timeout
     % Give other processes a moment to catch up
     java.lang.Thread.sleep(floor(FILE_CREATION_PAUSE_TIME_MS));
     
-    other_sem_files = checkOtherSemFiles(sem);
+    other_sem_files = checkOtherSemFiles(my_sem_filename);
     
     % If in a race condition, pause for a random amount of time.
     if ~isempty(other_sem_files)
