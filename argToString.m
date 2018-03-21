@@ -1,6 +1,6 @@
 function [str, isDefault, isIgnored] = argToString(arg, numPrecision, defaultArg, defaultStr)
-% ARGTOSTRING helper function for LOADORRUN. Recursively converts function arguments into a string
-% identifier, taking 'default' values into account. (See LOADORRUN).
+% ARGTOSTRING helper function for loadOrRun. Recursively converts function arguments into a string
+% identifier, taking 'default' values into account. (See loadOrRun).
 %
 % Copyright (c) 2018 Richard Lange
 

@@ -1,7 +1,7 @@
 function removeCacheIfSourceChanged(options, cacheFile, dependencySourceFile)
-% REMOVECACHEIFSOURCECHANGED helper function for LOADORRUN. Checks if the given cache file (.mat) or
+% REMOVECACHEIFSOURCECHANGED helper function for loadOrRun. Checks if the given cache file (.mat) or
 % the given source file (.m) has a more recent timestamp. Issues a warning or deletes the cached
-% file depending on the value of options.onDependencyChange (see LOADORRUN)
+% file depending on the value of options.onDependencyChange (see loadOrRun)
 %
 % Copyright (c) 2018 Richard Lange
 
