@@ -27,9 +27,9 @@ rmdir('.meta', 's');
 %% Test custom output directory
 
 options = struct('uid', '12345', 'cachePath', 'mycache', 'metaPath', 'mymeta');
-y1 = loadOrRun(@sin, {pi}, options);
-assert(exist(fullfile('mycache', 'sin-12345.mat'), 'file') > 0);
-assert(exist(fullfile('mymeta', 'dependencies.mat'), 'file') > 0);
+[y1, y2] = loadOrRun(@twoOut, {1, 2}, options);
+assert(exist(fullfile('mycache', 'twoOut-12345.mat'), 'file') > 0);
+assert(exist(fullfile('mymeta', 'twoOut-sourceDependencies.mat'), 'file') > 0);
 
 rmdir('mycache', 's');
 rmdir('mymeta', 's');

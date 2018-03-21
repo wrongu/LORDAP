@@ -98,28 +98,6 @@ if ~exist(options.metaPath, 'dir')
     mkdir(options.metaPath);
 end
 
-% 'dependencies' tracks what 'loadOrRun' functions are called above the current one, so that if the
-% current one is changed we can detect from 'higher' ones that they must be recomputed. Each entry
-% maps from a function name (funcName) to the .m source file(s) of its dependencie(s).
-metaFile = fullfile(options.metaPath, 'dependencies.mat');
-if exist(metaFile, 'file')
-    contents = load(metaFile);
-    dependencies = contents.dependencies;
-    if options.verbose == 1
-        disp(['Loaded ''callerDependencies'' from ' metaFile]);
-    elseif options.verbose == 2
-        fprintf('Loaded dependencies from %s:\n', metaFile);
-        for k=keys(dependencies)
-            fprintf('\t%s -> %s\n', k{1}, repr(dependencies(k{1}), 0));
-        end
-    end
-else
-    dependencies = containers.Map();
-    if options.verbose
-        disp('No metadata file exists yet - starting with empty dependencies');
-    end
-end
-
 %% Update dependencies metadata by searching up the current call stack
 
 % Get information about the true name of 'func', its source file, etc.
@@ -135,7 +113,7 @@ if isPackage
     sourceFile = which(funcName);
     
     % Further fix odd behavior where dbstack() from within package functions strips off the name of
-    % the package - as far as monitoring dependencies goes, this means that dependencies of 
+    % the package - as far as monitoring dependencies goes, this means that dependencies of
     % packageA.packageFun and packageB.packageFun will be 'merged', which could trigger more
     % warnings and updates than is strictly necessary.
     nameParts = strsplit(funcName, '.');
@@ -161,35 +139,31 @@ elseif ~exist(sourceFile, 'file')
     hasSource = false;
 end
 
-% A function depends on its own source file (if it exists)
-if ~isKey(dependencies, keyFuncName)
-    if hasSource
-        dependencies(keyFuncName) = {sourceFile};
-    else
-        dependencies(keyFuncName) = {};
-    end
-end
+% 'dependencies' tracks what 'loadOrRun' functions are called above the current one, so that if the
+% current one is changed we can detect from 'higher' ones that they must be recomputed. A file named
+% <funcName>-sourceDependencies.mat will contain a cell array of paths to .m files that <funcName>
+% depends on.
+
+if hasSource
+    % First, add own source file as a dependency to track
+    addSourceDependency(keyFuncName, sourceFile, options);
     
-% Search up the stack trace for other calls to 'loadOrRun' to populate dependencies
-stack = dbstack();
-for i=2:length(stack)
-    if strcmpi(stack(i).name, 'loadorrun')
-        callerFuncName = stack(i-1).name;
-        if ~isempty(sourceFile) && exist(sourceFile, 'file') && ~ismember(sourceFile, dependencies(callerFuncName))
-            % Note: 'callerFuncName' should always be a key of 'dependencies' since it was already
-            % called higher in the stack.
-            dependencies(callerFuncName) = horzcat(dependencies(callerFuncName), {sourceFile});
+    % Next, search up the stack trace for other calls to 'loadOrRun' to flag this file as a
+    % dependency of its parent function(s)
+    stack = dbstack();
+    for i=2:length(stack)
+        if strcmpi(stack(i).name, 'loadorrun')
+            callerFuncName = stack(i-1).name;
+            addSourceDependency(callerFuncName, sourceFile, options);
         end
     end
 end
-
-save(metaFile, 'dependencies');
 
 %% Get UID or create from args
 
 if isfield(options, 'uid')
     uid = options.uid;
-
+    
     % Remove '.mat' extension if it is given in the uid.
     if length(uid) > 4 && strcmp(options.uid(end-3:end), '.mat')
         uid = uid(1:end-4);
@@ -226,15 +200,23 @@ end
 %% Check modification times and (maybe) remove cache file if dependencies changed
 
 if ~strcmpi(options.onDependencyChange, 'ignore')
-    if (exist(cacheFile, 'file') || exist(errorFile, 'file')) && isKey(dependencies, keyFuncName)
+    metaFile = fullfile(options.metaPath, [keyFuncName '-sourceDependencies.mat']);
+    if (exist(cacheFile, 'file') || exist(errorFile, 'file')) && exist(metaFile, 'file')
         % Get list of dependencies' source files to compare against the existing cache file (this
-        % includes the source file of 'func').
-        dependencySources = dependencies(keyFuncName);
+        % includes the source file of 'func' itself).
+        contents = load(metaFile);
+        dependencies = contents.dependencies;
+        if options.verbose == 2
+            fprintf('Loaded dependencies from %s:\n', metaFile);
+            for i=1:length(dependencies)
+                fprintf('\t%s -> %s\n', keyFuncName, dependencies{i});
+            end
+        end
         
-        for i=1:length(dependencySources)
-            removeCacheIfSourceChanged(options, cacheFile, dependencySources{i});
+        for i=1:length(dependencies)
+            removeCacheIfSourceChanged(options, cacheFile, dependencies{i});
             % Also remove error files if dependencies changed since the error may now be fixed.
-            removeCacheIfSourceChanged(options, errorFile, dependencySources{i});
+            removeCacheIfSourceChanged(options, errorFile, dependencies{i});
         end
     end
 end
