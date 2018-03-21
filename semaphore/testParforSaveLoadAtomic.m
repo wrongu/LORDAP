@@ -15,6 +15,7 @@ try
     error('this should have failed!');
 catch
     % success: an error is expected when increment() is used without semaphores
+    delete('testing/data1.mat');
 end
 
 %% Test 2: adding semaphores fixes Test 1
@@ -30,3 +31,5 @@ end
 
 contents = load('testing/data2.mat');
 assert(contents.val == 501, 'Atomicity is broken - each increment() should have happened serially');
+
+delete('testing/data2.mat');
