@@ -212,7 +212,7 @@ cacheInfo2 = dir('.cache/twoOut-1-1.mat');
 
 assert(cacheInfo2.datenum > cacheInfo.datenum, 'Recompute flag should trigger update.');
 
-pause(.5);
+pause(1);
 
 [~, ~] = loadOrRun(@twoOut, {1, 1}, options);
 cacheInfo3 = dir('.cache/twoOut-1-1.mat');
@@ -234,15 +234,20 @@ cacheInfo1 = dir('.cache/twoOut-1-1.mat');
 
 assert(cacheInfo1.datenum == cacheInfo.datenum, 'No modification should have happened yet.');
 
-pause(.5);
+% 'now' returns the current time in 'datenum' format.
+timecheck = now;
 
-options = struct('recompute', now);  % 'now' returns the current time in 'datenum' format.
+% 'now' and file timestamps differ by fractions of a second. Pause here to not be sensitive to that.
+pause(1);
+
+options = struct('recompute', timecheck, 'verbose', 2);
 [~, ~] = loadOrRun(@twoOut, {1, 1}, options);
 cacheInfo2 = dir('.cache/twoOut-1-1.mat');
 
 assert(cacheInfo2.datenum > cacheInfo.datenum, 'Recompute flag should trigger update.');
+assert(cacheInfo2.datenum >= timecheck, 'Timing inconsistency?');
 
-pause(.5);
+pause(1);
 
 [~, ~] = loadOrRun(@twoOut, {1, 1}, options);
 cacheInfo3 = dir('.cache/twoOut-1-1.mat');

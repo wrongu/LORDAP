@@ -257,6 +257,16 @@ end
 cacheInfo = dir(cacheFile);
 doCompute = ~exist(cacheFile, 'file') || (cacheInfo.datenum < recomputeTime);
 
+if doCompute && options.verbose == 2
+    if ~exist(cacheFile, 'file')
+        fprintf('Reason: no cache file\n');
+    elseif cacheInfo.datenum < recomputeTime
+        fprintf('Reason: old cache file\n');
+    else
+        fprintf('Reason: ???\n');
+    end
+end
+
 % Check for hash collision. Note that cacheFile might be large, so we separately save the full uid
 % in the '.id.mat' file, which is very fast to load and verify.
 if exist(idFile, 'file')
@@ -303,7 +313,7 @@ if doCompute
     end
     
     if options.verbose
-        fprintf('done. Saving.\n');
+        fprintf('done. Saving to %s...\n', cacheFile);
     end
     
     % Save results to the file.
