@@ -191,3 +191,64 @@ end
 
 rmdir('.cache', 's');
 rmdir('.meta', 's');
+
+%% Test 'recompute' flag as boolean
+
+[~, ~] = loadOrRun(@twoOut, {1, 1});
+cacheInfo = dir('.cache/twoOut-1-1.mat');
+
+pause(.5);
+
+[~, ~] = loadOrRun(@twoOut, {1, 1});
+cacheInfo1 = dir('.cache/twoOut-1-1.mat');
+
+assert(cacheInfo1.datenum == cacheInfo.datenum, 'No modification should have happened yet.');
+
+pause(.5);
+
+options = struct('recompute', true);
+[~, ~] = loadOrRun(@twoOut, {1, 1}, options);
+cacheInfo2 = dir('.cache/twoOut-1-1.mat');
+
+assert(cacheInfo2.datenum > cacheInfo.datenum, 'Recompute flag should trigger update.');
+
+pause(.5);
+
+[~, ~] = loadOrRun(@twoOut, {1, 1}, options);
+cacheInfo3 = dir('.cache/twoOut-1-1.mat');
+
+assert(cacheInfo3.datenum > cacheInfo2.datenum, 'Recompute flag should trigger update second time as well.');
+
+rmdir('.cache', 's');
+rmdir('.meta', 's');
+
+%% Test 'recompute' flag as timestamp
+
+[~, ~] = loadOrRun(@twoOut, {1, 1});
+cacheInfo = dir('.cache/twoOut-1-1.mat');
+
+pause(.5);
+
+[~, ~] = loadOrRun(@twoOut, {1, 1});
+cacheInfo1 = dir('.cache/twoOut-1-1.mat');
+
+assert(cacheInfo1.datenum == cacheInfo.datenum, 'No modification should have happened yet.');
+
+pause(.5);
+
+options = struct('recompute', now);  % 'now' returns the current time in 'datenum' format.
+[~, ~] = loadOrRun(@twoOut, {1, 1}, options);
+cacheInfo2 = dir('.cache/twoOut-1-1.mat');
+
+assert(cacheInfo2.datenum > cacheInfo.datenum, 'Recompute flag should trigger update.');
+
+pause(.5);
+
+[~, ~] = loadOrRun(@twoOut, {1, 1}, options);
+cacheInfo3 = dir('.cache/twoOut-1-1.mat');
+
+assert(cacheInfo3.datenum == cacheInfo2.datenum, ['Second call with flag is not an update, since ' ...
+    'the cache file is now newer than ''now'' was before']);
+
+rmdir('.cache', 's');
+rmdir('.meta', 's');

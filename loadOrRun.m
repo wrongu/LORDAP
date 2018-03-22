@@ -20,7 +20,9 @@ function varargout = loadOrRun(func, args, options)
 % - cachePath - where save results (default '.cache/'). Note that the '.' prefix makes the directory
 %   hidden on unix and linux systems.
 % - metaPath - where to save metadata about function dependencies (default '.meta/')
-% - recompute - boolean flag to force a call to func() even if cached result exists (default false)
+% - recompute - boolean flag to force a call to func() even if cached result exists, or a datenum
+%   timestamp indicating that all files older than this should be recomputed (this allows recompute
+%   to be set to the matlab function 'now' to recompute each function once). (default false)
 % - verbose - integer flag for level of extra diagnostic messages in range 0-2 (default 0)
 % - errorHandling - how to handle errors. Options are 'none' to do nothing, or 'cache' to save and
 %   immediately rethrow errors on future calls. The cache option is recommended if the calling
@@ -96,6 +98,16 @@ if ~exist(options.metaPath, 'dir')
         disp(['Metadata directory ' options.metaPath ' does not exist. Creating it now.']);
     end
     mkdir(options.metaPath);
+end
+
+if islogical(options.recompute)
+    if options.recompute
+        recomputeTime = inf;
+    else
+        recomputeTime = -inf;
+    end
+else
+    recomputeTime = options.recompute;
 end
 
 %% Update dependencies metadata by searching up the current call stack
@@ -223,7 +235,8 @@ end
 
 %% Determine whether a call to func is needed
 
-doCompute = ~exist(cacheFile, 'file') || options.recompute;
+cacheInfo = dir(cacheFile);
+doCompute = ~exist(cacheFile, 'file') || (cacheInfo.datenum < recomputeTime);
 
 % Check for hash collision. Note that cacheFile might be large, so we separately save the full uid
 % in the '.id.mat' file, which is very fast to load and verify.
