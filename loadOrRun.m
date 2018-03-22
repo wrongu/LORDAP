@@ -67,6 +67,7 @@ if nargin < 3, options = struct(); end
 
 % Ensure that dependencies are on the path
 if exist('string2hash', 'file') ~= 2, addpath('string2hash'); end
+if exist('getsemaphore', 'file') ~= 2, addpath('semaphore'); end
 
 % Set up default options.
 if ~isfield(options, 'cachePath'), options.cachePath = fullfile(pwd, '.cache'); end
@@ -202,6 +203,10 @@ cacheFile = fullfile(options.cachePath, [uidFinal '.mat']);
 idFile = fullfile(options.cachePath, [uidFinal '.id.mat']);
 errorFile = fullfile(options.cachePath, [uidFinal '.error']);
 
+cacheSem = fullfile(options.metaPath, uidFinal);
+idSem = fullfile(options.metaPath, [uidFinal '.id']);
+errorSem = fullfile(options.metaPath, [uidFinal '.error']);
+
 if options.verbose == 2
     disp(['Full UID is ''' uid '''']);
     if isHashed
@@ -212,14 +217,17 @@ end
 %% Check modification times and (maybe) remove cache file if dependencies changed
 
 if ~strcmpi(options.onDependencyChange, 'ignore')
-    metaFile = fullfile(options.metaPath, [keyFuncName '-sourceDependencies.mat']);
-    if (exist(cacheFile, 'file') || exist(errorFile, 'file')) && exist(metaFile, 'file')
+    depFile = fullfile(options.metaPath, [keyFuncName '-sourceDependencies.mat']);
+    if (exist(cacheFile, 'file') || exist(errorFile, 'file')) && exist(depFile, 'file')
         % Get list of dependencies' source files to compare against the existing cache file (this
         % includes the source file of 'func' itself).
-        contents = load(metaFile);
+        sem = getsemaphore(depFile);
+        contents = load(depFile);
+        releasesemaphore(sem);
         dependencies = contents.dependencies;
+        
         if options.verbose == 2
-            fprintf('Loaded dependencies from %s:\n', metaFile);
+            fprintf('Loaded dependencies from %s:\n', depFile);
             for i=1:length(dependencies)
                 fprintf('\t%s -> %s\n', keyFuncName, dependencies{i});
             end
@@ -233,6 +241,17 @@ if ~strcmpi(options.onDependencyChange, 'ignore')
     end
 end
 
+%% If last call to func was an error and errorHandling is set to 'cache', rethrow the previous error immediately
+
+if strcmpi(options.errorHandling, 'cache') && exist(errorFile, 'file')
+    sem = getsemaphore(errorSem);
+    f = fopen(errorFile, 'r');
+    errorText = fread(f, inf, 'uint8=>char');
+    fclose(f);
+    releasesemaphore(sem);
+    error(errorText(:)');
+end
+
 %% Determine whether a call to func is needed
 
 cacheInfo = dir(cacheFile);
@@ -241,20 +260,13 @@ doCompute = ~exist(cacheFile, 'file') || (cacheInfo.datenum < recomputeTime);
 % Check for hash collision. Note that cacheFile might be large, so we separately save the full uid
 % in the '.id.mat' file, which is very fast to load and verify.
 if exist(idFile, 'file')
+    sem = getsemaphore(idSem);
     idContents = load(idFile);
+    releasesemaphore(sem);
     if ~strcmp(idContents.uid, uid)
         warning('Hash collision!! Original uids:\n\t%s\n\t%s', idContents.uid, uid);
         doCompute = true;
     end
-end
-
-%% If last call to func was an error and errorHandling is set to 'cache', rethrow the previous error immediately
-
-if strcmpi(options.errorHandling, 'cache') && exist(errorFile, 'file')
-    f = fopen(errorFile, 'r');
-    errorText = fread(f, inf, 'uint8=>char');
-    fclose(f);
-    error(errorText(:)');
 end
 
 %% Call func or load cached results.
@@ -270,7 +282,9 @@ if doCompute
         [results{:}] = func(args{:});
         
         if exist(errorFile, 'file')
+            sem = getsemaphore(errorSem);
             delete(errorFile);
+            release(sem);
         end
     catch e
         if options.verbose
@@ -279,9 +293,11 @@ if doCompute
         
         % Save text of error to file
         errorText = getReport(e);
+        sem = getsemaphore(errorSem);
         f = fopen(errorFile, 'w');
         fwrite(f, errorText);
         fclose(f);
+        releasesemaphore(sem);
         
         rethrow(e);
     end
@@ -291,15 +307,21 @@ if doCompute
     end
     
     % Save results to the file.
+    sem = getsemaphore(cacheSem);
     save(cacheFile, 'results');
+    releasesemaphore(sem);
     if isHashed
+        sem = getsemaphore(idSem);
         save(idFile, 'uid', '-v7.3');
+        releasesemaphore(sem);
     end
 else
     if options.verbose
         fprintf('Loading cached results from %s...\t\n', cacheFile);
     end
+    sem = getsemaphore(cacheSem);
     contents = load(cacheFile);
+    releasesemaphore(sem);
     if options.verbose
         fprintf('done.\n');
     end

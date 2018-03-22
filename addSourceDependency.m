@@ -7,13 +7,26 @@ function dependencies = addSourceDependency(funcName, sourceFile, options)
 depFile = fullfile(options.metaPath, [funcName '-sourceDependencies.mat']);
 
 if exist(depFile, 'file')
+    sem = getsemaphore(depFile);
     contents = load(depFile);
-    dependencies = horzcat(contents.dependencies, {sourceFile});
+    releasesemaphore(sem);
+    dependencies = contents.dependencies;
+    
+    % Only add 'sourceFile' if it is not already in 'dependencies'
+    if ~any(strcmpi(sourceFile, contents.dependencies))
+        dependencies = unique(horzcat(dependencies, {sourceFile}));
+    
+        sem = getsemaphore(depFile);
+        save(depFile, 'dependencies');
+        releasesemaphore(sem);
+    end
 else
     dependencies = {sourceFile};
+    
+    sem = getsemaphore(depFile);
+    save(depFile, 'dependencies');
+    releasesemaphore(sem);
 end
 
-dependencies = unique(dependencies);
-save(depFile, 'dependencies');
 
 end

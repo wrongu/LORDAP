@@ -19,7 +19,11 @@ if ~isempty(sourceInfo) && ~isempty(cacheInfo) && cacheInfo.datenum < sourceInfo
             if options.verbose
                 disp([message ' Deleting it now!']);
             end
+            % Make sure we are holding a lock on the cache file while removing it in case another
+            % process is trying to load the same file.
+            sem = getsemaphore(cacheFile);
             delete(cacheFile);
+            releasesemaphore(sem);
     end
 end
 
