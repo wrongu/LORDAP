@@ -294,7 +294,7 @@ if doCompute
         if exist(errorFile, 'file')
             sem = getsemaphore(errorSem);
             delete(errorFile);
-            release(sem);
+            releasesemaphore(sem);
         end
     catch e
         if options.verbose
