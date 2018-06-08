@@ -15,7 +15,7 @@ if isnumeric(obj)
         s = ['[' strjoin(arrayfun(@(num) num2str(num, numPrecision), obj, 'UniformOutput', false), '-') ']'];
     end
 elseif ischar(obj)
-    s = strrep(obj, ' ', '_');
+    s = strrep(obj(:)', ' ', '_');
 elseif islogical(obj)
     if obj
         s = 'T';
