@@ -42,6 +42,9 @@ function varargout = loadOrRun(func, args, options)
 %   arguments.
 % - defaultString - a short string to replace any args that are ignored or have default values.
 %   (default 'default')
+% - queryFiles - a flag indicating that loadOrRun should just return metadata about filenames,
+%   returning early without computing anything. This is useful for debugging, e.g. by only running
+%   something if the cache file exists. (default false)
 %
 % For example, if options.uid = 'myuid12345', then results will be saved in a file (in the
 % options.cachePath directory) called '<funcName>-myuid12345.mat' (where <funcName> is the string
@@ -79,6 +82,7 @@ if ~isfield(options, 'numPrecision'), options.numPrecision = 4; end
 if ~isfield(options, 'onDependencyChange'), options.onDependencyChange = 'warn'; end
 if ~isfield(options, 'defaultArgs'), options.defaultArgs = {}; end
 if ~isfield(options, 'defaultString'), options.defaultString = 'default'; end
+if ~isfield(options, 'queryFiles'), options.queryFiles = false; end
 
 % Check inputs.
 assert(iscell(args), 'loadOrRun(@fun, args): args must be a cell array');
@@ -202,6 +206,16 @@ uidFinal = [funcName '-' uidFinal];
 cacheFile = fullfile(options.cachePath, [uidFinal '.mat']);
 idFile = fullfile(options.cachePath, [uidFinal '.id.mat']);
 errorFile = fullfile(options.cachePath, [uidFinal '.error']);
+
+if options.queryFiles
+    files.uid = uid;
+    files.uidFinal = uidFinal;
+    files.cacheFile = cacheFile;
+    files.idFile = idFile;
+    files.errorFile = errorFile;
+    varargout{1} = files;
+    return;
+end
 
 cacheSem = fullfile(options.metaPath, uidFinal);
 idSem = fullfile(options.metaPath, [uidFinal '.id']);

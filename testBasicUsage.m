@@ -257,3 +257,18 @@ assert(cacheInfo3.datenum == cacheInfo2.datenum, ['Second call with flag is not 
 
 rmdir('.cache', 's');
 rmdir('.meta', 's');
+
+%% Test 'queryFiles' flag
+
+tstart = tic;
+options = struct('queryFiles', true);
+
+expected_uid = 'delayThenError-1';
+
+% The function itself will not be run, so (1) it should be fast, and (2) there should be no error.
+finfo = loadOrRun(@delayThenError, {1}, options);
+
+assert(strcmp(finfo.uidFinal, expected_uid));
+
+rmdir('.cache', 's');
+rmdir('.meta', 's');
