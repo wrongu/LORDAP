@@ -33,5 +33,7 @@ elseif isstruct(obj)
         sParts{i} = [key '=' repr(val, numPrecision)];
     end
     s = ['(' strjoin(sParts, '-') ')'];
+elseif isa(obj, 'function_handle')
+    s = [func2str(obj) '()'];
 end
 end
