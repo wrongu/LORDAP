@@ -115,9 +115,8 @@ else
     recomputeTime = options.recompute;
 end
 
-%% Update dependencies metadata by searching up the current call stack
+%% Get information about the true name of 'func', its source file, etc.
 
-% Get information about the true name of 'func', its source file, etc.
 funcInfo = functions(func);
 funcName = funcInfo.function;
 sourceFile = funcInfo.file;
@@ -154,26 +153,6 @@ if isempty(sourceFile)
 elseif ~exist(sourceFile, 'file')
     warning('Source file for %s is not visible from the current path settings (source: ''%s'')\n', funcName, sourceFile);
     hasSource = false;
-end
-
-% 'dependencies' tracks what 'loadOrRun' functions are called above the current one, so that if the
-% current one is changed we can detect from 'higher' ones that they must be recomputed. A file named
-% <funcName>-sourceDependencies.mat will contain a cell array of paths to .m files that <funcName>
-% depends on.
-
-if hasSource
-    % First, add own source file as a dependency to track
-    addSourceDependency(keyFuncName, sourceFile, options);
-    
-    % Next, search up the stack trace for other calls to 'loadOrRun' to flag this file as a
-    % dependency of its parent function(s)
-    stack = dbstack();
-    for i=2:length(stack)
-        if strcmpi(stack(i).name, 'loadorrun')
-            callerFuncName = stack(i-1).name;
-            addSourceDependency(callerFuncName, sourceFile, options);
-        end
-    end
 end
 
 %% Get UID or create from args
@@ -225,6 +204,28 @@ if options.verbose == 2
     disp(['Full UID is ''' uid '''']);
     if isHashed
         disp(['UID hashed to ''' uidFinal '''']);
+    end
+end
+
+%% Update dependencies metadata by searching up the current call stack
+
+% 'dependencies' tracks what 'loadOrRun' functions are called above the current one, so that if the
+% current one is changed we can detect from 'higher' ones that they must be recomputed. A file named
+% <funcName>-sourceDependencies.mat will contain a cell array of paths to .m files that <funcName>
+% depends on.
+
+if hasSource
+    % First, add own source file as a dependency to track
+    addSourceDependency(keyFuncName, sourceFile, options);
+    
+    % Next, search up the stack trace for other calls to 'loadOrRun' to flag this file as a
+    % dependency of its parent function(s)
+    stack = dbstack();
+    for i=2:length(stack)
+        if strcmpi(stack(i).name, 'loadorrun')
+            callerFuncName = stack(i-1).name;
+            addSourceDependency(callerFuncName, sourceFile, options);
+        end
     end
 end
 
