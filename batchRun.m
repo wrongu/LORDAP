@@ -12,11 +12,15 @@ function [jobs, jobIds] = batchRun(func, nargout, argsCell, options, time, queue
 % (e.g. slurmFlags could be '-o myjob.out.%J.txt -e myjob.err.%J.txt', where SLURM itself will
 % replace '%J' with the job id)
 
-ClusterInfo.setWallTime(time);
-ClusterInfo.setQueueName(queue);
-ClusterInfo.setMemUsage(sprintf('%dGB', ceil(memGB)));
-if exist('slurmFlags', 'var') && ~isempty(slurmFlags), ClusterInfo.setUserDefinedOptions(slurmFlags); end
 c = parcluster;
+c.AdditionalProperties.WallTime = time;
+c.AdditionalProperties.QueueName = queue;
+
+flags = sprintf('--mem %dGB', ceil(memGB));
+if exist('slurmFlags', 'var') && ~isempty(slurmFlags)
+	flags = [flags ' ' slurmFlags];
+end
+c.AdditionalProperties.AdditionalSubmitArgs = flags;
 
 queryOptions = options;
 queryOptions.dryRun = true;
