@@ -258,10 +258,10 @@ assert(cacheInfo3.datenum == cacheInfo2.datenum, ['Second call with flag is not 
 rmdir('.cache', 's');
 rmdir('.meta', 's');
 
-%% Test 'queryFiles' flag
+%% Test 'dryRun' flag
 
 tstart = tic;
-options = struct('queryFiles', true);
+options = struct('dryRun', true);
 
 expected_uid = 'delayThenError-1';
 

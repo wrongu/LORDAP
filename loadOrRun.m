@@ -42,9 +42,9 @@ function varargout = loadOrRun(func, args, options)
 %   arguments.
 % - defaultString - a short string to replace any args that are ignored or have default values.
 %   (default 'default')
-% - queryFiles - a flag indicating that loadOrRun should just return metadata about filenames,
-%   returning early without computing anything. This is useful for debugging, e.g. by only running
-%   something if the cache file exists. (default false)
+% - dryRun - a flag indicating that loadOrRun should just return metadata about what it would do,
+%   returning early without computing anything. This allows, for example checking if the cache
+%   file exists without calling the function (default false)
 %
 % For example, if options.uid = 'myuid12345', then results will be saved in a file (in the
 % options.cachePath directory) called '<funcName>-myuid12345.mat' (where <funcName> is the string
@@ -82,7 +82,7 @@ if ~isfield(options, 'numPrecision'), options.numPrecision = 4; end
 if ~isfield(options, 'onDependencyChange'), options.onDependencyChange = 'warn'; end
 if ~isfield(options, 'defaultArgs'), options.defaultArgs = {}; end
 if ~isfield(options, 'defaultString'), options.defaultString = 'default'; end
-if ~isfield(options, 'queryFiles'), options.queryFiles = false; end
+if ~isfield(options, 'dryRun'), options.dryRun = false; end
 
 % Check inputs.
 assert(iscell(args), 'loadOrRun(@fun, args): args must be a cell array');
@@ -186,16 +186,6 @@ cacheFile = fullfile(options.cachePath, [uidFinal '.mat']);
 idFile = fullfile(options.cachePath, [uidFinal '.id.mat']);
 errorFile = fullfile(options.cachePath, [uidFinal '.error']);
 
-if options.queryFiles
-    files.uid = uid;
-    files.uidFinal = uidFinal;
-    files.cacheFile = cacheFile;
-    files.idFile = idFile;
-    files.errorFile = errorFile;
-    varargout{1} = files;
-    return;
-end
-
 cacheSem = fullfile(options.metaPath, uidFinal);
 idSem = fullfile(options.metaPath, [uidFinal '.id']);
 errorSem = fullfile(options.metaPath, [uidFinal '.error']);
@@ -231,6 +221,7 @@ end
 
 %% Check modification times and (maybe) remove cache file if dependencies changed
 
+dependencyUpdate = false;
 if ~strcmpi(options.onDependencyChange, 'ignore')
     depFile = fullfile(options.metaPath, [keyFuncName '-sourceDependencies.mat']);
     if (exist(cacheFile, 'file') || exist(errorFile, 'file')) && exist(depFile, 'file')
@@ -249,9 +240,9 @@ if ~strcmpi(options.onDependencyChange, 'ignore')
         end
         
         for i=1:length(dependencies)
-            removeCacheIfSourceChanged(options, cacheFile, dependencies{i});
+            dependencyUpdate = dependencyUpdate || removeCacheIfSourceChanged(options, cacheFile, dependencies{i});
             % Also remove error files if dependencies changed since the error may now be fixed.
-            removeCacheIfSourceChanged(options, errorFile, dependencies{i});
+            dependencyUpdate = dependencyUpdate || removeCacheIfSourceChanged(options, errorFile, dependencies{i});
         end
     end
 end
@@ -270,7 +261,7 @@ end
 %% Determine whether a call to func is needed
 
 cacheInfo = dir(cacheFile);
-doCompute = ~exist(cacheFile, 'file') || (cacheInfo.datenum < recomputeTime);
+doCompute = dependencyUpdate || ~exist(cacheFile, 'file') || (cacheInfo.datenum < recomputeTime);
 
 if doCompute && options.verbose == 2
     if ~exist(cacheFile, 'file')
@@ -292,6 +283,19 @@ if exist(idFile, 'file')
         warning('Hash collision!! Original uids:\n\t%s\n\t%s', idContents.uid, uid);
         doCompute = true;
     end
+end
+
+%% When 'dryRun' is set, simply return information about filenames and whether computation is needed
+
+if options.dryRun
+    info.uid = uid;
+    info.uidFinal = uidFinal;
+    info.cacheFile = cacheFile;
+    info.idFile = idFile;
+    info.errorFile = errorFile;
+    info.needsCompute = doCompute;
+    varargout{1} = info;
+    return;
 end
 
 %% Call func or load cached results.

@@ -14,15 +14,21 @@ function [jobs, jobIds] = batchRun(func, nargout, argsCell, options, time, queue
 
 ClusterInfo.setWallTime(time);
 ClusterInfo.setQueueName(queue);
-ClusterInfo.setMemUsage(sprintf('%dGB', ceil(memGB))));
+ClusterInfo.setMemUsage(sprintf('%dGB', ceil(memGB)));
 if exist('slurmFlags', 'var') && ~isempty(slurmFlags), ClusterInfo.setUserDefinedOptions(slurmFlags); end
 c = parcluster;
+
+queryOptions = options;
+queryOptions.dryRun = true;
 
 jobs = cell(size(argsCell));
 jobIds = cell(size(argsCell));
 for iJob=1:length(jobs)
-    jobs{iJob} = c.batch(@loadOrRun, nargout, {func, argsCell{iJob}, options});
-    jobIds{iJob} = schedID(jobs{iJob});
+	info = loadOrRun(func, argsCell{iJob}, queryOptions);
+	if info.needsCompute
+		jobs{iJob} = c.batch(@loadOrRun, nargout, {func, argsCell{iJob}, options});
+		jobIds{iJob} = schedID(jobs{iJob});
+	end
 end
 
 end
