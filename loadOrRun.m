@@ -299,7 +299,7 @@ if doCompute
     % Call func(args) and capture as many return values as have been requested by whoever called
     % this function.
     if options.verbose
-        fprintf('Calling %s with %d outputs...\t\n', funcName, nargout);
+        fprintf('Computing results for %s-%s with %d outputs\n', funcName, uid, nargout);
     end
     results = cell(1, nargout);
     
