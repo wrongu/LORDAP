@@ -18,21 +18,38 @@ c.AdditionalProperties.QueueName = queue;
 
 flags = sprintf('--mem %dGB', ceil(memGB));
 if exist('slurmFlags', 'var') && ~isempty(slurmFlags)
-	flags = [flags ' ' slurmFlags];
+    flags = [flags ' ' slurmFlags];
 end
 c.AdditionalProperties.AdditionalSubmitArgs = flags;
 
 queryOptions = options;
 queryOptions.dryRun = true;
 
+funcInfo = functions(func);
+funcName = funcInfo.function;
+
 jobs = cell(size(argsCell));
 jobIds = cell(size(argsCell));
 for iJob=1:length(jobs)
-	info = loadOrRun(func, argsCell{iJob}, queryOptions);
-	if info.needsCompute
-		jobs{iJob} = c.batch(@loadOrRun, nargout, {func, argsCell{iJob}, options});
-		jobIds{iJob} = schedID(jobs{iJob});
-	end
+    info = loadOrRun(func, argsCell{iJob}, queryOptions);
+    uid = getOrCreateUID(argsCell{iJob}, options);
+    if info.needsCompute
+        jobs{iJob} = c.batch(@loadOrRun, nargout, {func, argsCell{iJob}, options});
+        jobIds{iJob} = schedID(jobs{iJob});
+        if options.verbose == 1
+            fprintf('Submitting job for %s-%s\n', funcName, uid);
+        elseif options.verbose == 2
+            fprintf('Submitting job for %s-%s with Job ID %d\n', funcName, uid, jobIds{iJob});
+        end
+    end
+end
+
+if options.verbose == 2
+    fprintf('STATUSES\n');
+    for iJob=1:length(jobs)
+        uid = getOrCreateUID(argsCell{iJob}, options);
+        fprintf('%d\t%s\t(%s)\n', jobIds{iJob}, jobs{iJob}.State, uid);
+    end
 end
 
 end
