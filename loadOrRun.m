@@ -73,16 +73,7 @@ if exist('string2hash', 'file') ~= 2, addpath('string2hash'); end
 if exist('getsemaphore', 'file') ~= 2, addpath('semaphore'); end
 
 % Set up default options.
-if ~isfield(options, 'cachePath'), options.cachePath = fullfile(pwd, '.cache'); end
-if ~isfield(options, 'metaPath'), options.metaPath = fullfile(pwd, '.meta'); end
-if ~isfield(options, 'recompute'), options.recompute = false; end
-if ~isfield(options, 'verbose'), options.verbose = false; end
-if ~isfield(options, 'errorHandling'), options.errorHandling = 'none'; end
-if ~isfield(options, 'numPrecision'), options.numPrecision = 4; end
-if ~isfield(options, 'onDependencyChange'), options.onDependencyChange = 'warn'; end
-if ~isfield(options, 'defaultArgs'), options.defaultArgs = {}; end
-if ~isfield(options, 'defaultString'), options.defaultString = 'default'; end
-if ~isfield(options, 'dryRun'), options.dryRun = false; end
+options = populateDefaultOptions(options);
 
 % Check inputs.
 assert(iscell(args), 'loadOrRun(@fun, args): args must be a cell array');

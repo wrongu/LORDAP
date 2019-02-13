@@ -12,6 +12,9 @@ function [jobs, jobIds] = batchRun(func, nargout, argsCell, options, time, queue
 % (e.g. slurmFlags could be '-o myjob.out.%J.txt -e myjob.err.%J.txt', where SLURM itself will
 % replace '%J' with the job id)
 
+% Set up default options.
+options = populateDefaultOptions(options);
+
 c = parcluster;
 c.AdditionalProperties.WallTime = time;
 c.AdditionalProperties.QueueName = queue;
