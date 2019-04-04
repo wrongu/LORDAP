@@ -312,7 +312,7 @@ if doCompute
     
     % Save results to the file.
     sem = getsemaphore(cacheSem);
-    save(cacheFile, 'results');
+    save(cacheFile, 'results', '-v7.3');
     releasesemaphore(sem);
     if isHashed
         sem = getsemaphore(idSem);
