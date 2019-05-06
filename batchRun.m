@@ -13,7 +13,7 @@ function [jobs, jobIds] = batchRun(func, nargout, argsCell, options, time, queue
 % replace '%J' with the job id)
 
 % Set up default options.
-options = populateDefaultOptions(options);
+options = arrayfun(@populateDefaultOptions, options);
 
 c = parcluster;
 c.AdditionalProperties.WallTime = time;
@@ -25,8 +25,9 @@ if exist('slurmFlags', 'var') && ~isempty(slurmFlags)
 end
 c.AdditionalProperties.AdditionalSubmitArgs = flags;
 
-queryOptions = options;
-queryOptions.dryRun = true;
+if length(options) == 1
+    options = repmat(options, size(argsCell));
+end
 
 funcInfo = functions(func);
 funcName = funcInfo.function;
@@ -34,23 +35,25 @@ funcName = funcInfo.function;
 jobs = cell(size(argsCell));
 jobIds = cell(size(argsCell));
 for iJob=1:length(jobs)
+    queryOptions = options(iJob);
+    queryOptions.dryRun = true;
     info = loadOrRun(func, argsCell{iJob}, queryOptions);
-    uid = getOrCreateUID(argsCell{iJob}, options);
+    uid = getOrCreateUID(argsCell{iJob}, options(iJob));
     if info.needsCompute
-        jobs{iJob} = c.batch(@loadOrRun, nargout, {func, argsCell{iJob}, options});
+        jobs{iJob} = c.batch(@loadOrRun, nargout, {func, argsCell{iJob}, options(iJob)});
         jobIds{iJob} = schedID(jobs{iJob});
-        if options.verbose == 1
+        if options(iJob).verbose == 1
             fprintf('Submitting job for %s-%s\n', funcName, uid);
-        elseif options.verbose == 2
+        elseif options(iJob).verbose == 2
             fprintf('Submitting job for %s-%s with Job ID %d\n', funcName, uid, jobIds{iJob});
         end
     end
 end
 
-if options.verbose == 2
+if options(1).verbose == 2
     fprintf('STATUSES\n');
     for iJob=1:length(jobs)
-        uid = getOrCreateUID(argsCell{iJob}, options);
+        uid = getOrCreateUID(argsCell{iJob}, options(iJob));
         fprintf('%d\t%s\t(%s)\n', jobIds{iJob}, jobs{iJob}.State, uid);
     end
 end
