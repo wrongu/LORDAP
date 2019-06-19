@@ -272,3 +272,22 @@ assert(strcmp(finfo.uidFinal, expected_uid));
 
 rmdir('.cache', 's');
 rmdir('.meta', 's');
+
+%% Test that loading a corrupt file triggers recompute
+
+info = loadOrRun(@twoOut, {1, 2}, struct('dryRun', true));
+
+f = fopen(info.cacheFile, 'w');
+fprintf(f, 'this is clearly not a valid matfile\n');
+fclose(f);
+
+try
+    load(info.cacheFile);
+    assert(false, 'Load should fail!');
+catch
+end
+
+[y1, y2] = loadOrRun(@twoOut, {1, 2}, struct('verbose', 2));
+
+rmdir('.cache', 's');
+rmdir('.meta', 's');

@@ -274,6 +274,30 @@ if options.dryRun
 end
 
 %% Call func or load cached results.
+
+% Start by attempting to load. If it fails, we can fall back on recomputing things.
+if ~doCompute
+    if options.verbose
+        fprintf('Loading cached results from %s...\t\n', cacheFile);
+    end
+    sem = getsemaphore(cacheSem);
+    try
+        contents = load(cacheFile);
+        if options.verbose
+            fprintf('done.\n');
+        end
+        results = contents.results;
+    catch err
+        if options.verbose == 1
+            fprintf('\tLoading failed! Falling back on recomputing.\n');
+        elseif options.verbose == 2
+            fprintf('\tLoading failed! Message:\n%s\n', getReport(err));
+        end
+        doCompute = true;
+    end
+    releasesemaphore(sem);
+end
+
 if doCompute
     % Call func(args) and capture as many return values as have been requested by whoever called
     % this function.
@@ -319,17 +343,6 @@ if doCompute
         save(idFile, 'uid', '-v7.3');
         releasesemaphore(sem);
     end
-else
-    if options.verbose
-        fprintf('Loading cached results from %s...\t\n', cacheFile);
-    end
-    sem = getsemaphore(cacheSem);
-    contents = load(cacheFile);
-    releasesemaphore(sem);
-    if options.verbose
-        fprintf('done.\n');
-    end
-    results = contents.results;
 end
 
 varargout = results;

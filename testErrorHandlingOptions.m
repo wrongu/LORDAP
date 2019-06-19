@@ -35,7 +35,7 @@ try
 catch
 end
 elapsed = toc;
-assert(elapsed < .1, 'Cached error lookup should be fast');
+assert(elapsed < .5, 'Cached error lookup should be fast');
 
 rmdir('.cache', 's');
 rmdir('.meta', 's');
@@ -59,7 +59,7 @@ try
 catch
 end
 elapsed = toc;
-assert(elapsed < .1, 'Rethrow should be fast');
+assert(elapsed < .5, 'Rethrow should be fast');
 
 % 'update' the offending function - this should cause the .error file to be removed in the next
 % call.
@@ -70,3 +70,6 @@ tic;
 nil = loadOrRun(@delayThenError, {1, true}, options);  % Failing code should not be called - no try/catch
 elapsed = toc;
 assert(elapsed >= 1, 'Should have rerun full function');
+
+rmdir('.cache', 's');
+rmdir('.meta', 's');
